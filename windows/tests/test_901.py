@@ -257,7 +257,8 @@ def test_stamp_tells_apart_a_db_and_wal_that_swapped_modification_times(tmp_path
     os.utime(db, ns=(1_700_000_100_000_000_002, 1_700_000_100_000_000_002))
     os.utime(wal, ns=(1_700_000_000_000_000_001, 1_700_000_000_000_000_001))
     assert db_stamp(db)[0] != one
-    os.utime(db, ns=(1_700_000_000_000_000_001, 1_700_000_000_000_000_002))     # one nanosecond is a change too
+    # The smallest step the file system keeps is a change too: NTFS stores times in 100 ns ticks, APFS in nanoseconds.
+    os.utime(db, ns=(1_700_000_000_000_000_001, 1_700_000_000_000_000_101))
     os.utime(wal, ns=(1_700_000_100_000_000_002, 1_700_000_100_000_000_002))
     assert db_stamp(db)[0] != one
 
