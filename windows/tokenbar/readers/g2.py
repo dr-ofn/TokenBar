@@ -55,7 +55,7 @@ def _read_task_hints(folder):
 
 
 def _ms_of(v):
-    """Epoch milliseconds from a seconds-or-milliseconds number; None for anything that is not a finite number."""
+    """Epoch milliseconds from a seconds-or-milliseconds number; None for anything that is not a finite number an Int64 holds."""
     if not is_number(v) or not finite(v):
         return None
     try:
@@ -63,7 +63,9 @@ def _ms_of(v):
     except OverflowError:
         return None
     ms = t * 1000 if t < 1e11 else t
-    return ms if math.isfinite(ms) else None
+    # What the Mac reader holds to `Safe.int64`: a time no Int64 can hold (1e20) is a corrupt one, and the row is dated
+    # by the file. Left in, it keys the row by that number and puts a call in the far future into every window.
+    return ms if math.isfinite(ms) and -(2.0 ** 63) <= ms < 2.0 ** 63 else None
 
 
 def _task_log(sink, path, prefix, roo, file_mtime):

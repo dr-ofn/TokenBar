@@ -86,6 +86,14 @@ def tray_refresher(icon):
     return refresh
 
 
+def follow_reports(window, model, icon) -> None:
+    """The tray tooltip says what the window says: every report the window paints (after Offline is switched off, after
+    "Update prices", a new period) also sets the tooltip, instead of the old numbers staying until the next scan."""
+    def paint(report) -> None:
+        _tray(lambda: setattr(icon, "title", tooltip(model, report)))
+    window.on_report = paint
+
+
 def drain(requests, window, model, icon) -> bool:
     """Does what the other threads asked for. Called from the Tk main loop only: the window (tkinter) and the tray
     icon are touched here and nowhere else. Returns True when the app should quit. One request that fails is lost,
@@ -158,6 +166,9 @@ def background_pass(model, requests, state, now=None) -> None:
             # asked again after an hour (twice as long after each failure in a row), not after the six hours of a success
             state["price_failures"] = state.get("price_failures", 0) + 1
             wait = min(PRICE_CHECK_SECONDS, PRICE_RETRY_SECONDS << (state["price_failures"] - 1))
+            # ... unless another catalogue's remembered failure is over sooner: it must not wait behind this one
+            if getattr(report, "retry_in", None) is not None:
+                wait = min(wait, math.ceil(report.retry_in))
         elif getattr(report, "retry_in", None) is not None:
             # a failure the feed remembers on disk (an earlier run of the app): asked again when its hour is over, not in six
             wait = min(PRICE_CHECK_SECONDS, math.ceil(report.retry_in))
@@ -213,6 +224,7 @@ def _run(argv, model: AppModel, probe) -> int:
         pystray.MenuItem(t("Çık", "Quit"), lambda *_: requests.put("quit"))))
 
     window.on_offline_changed = tray_refresher(icon)          # the window's Offline switch ticks the tray menu too
+    follow_reports(window, model, icon)
 
     def handle():
         pump(requests, window, model, icon, root)

@@ -62,7 +62,7 @@ def test_oversize_rollout_keeps_the_calls_before_the_limit(home, monkeypatch):
     first = home.scan()
     assert home.calls("codex") == 2 and home.total("codex") == 250    # the two calls before the long line
     assert [m for _, m in first.issues if "rollout-big" in m and "too large" in m]
-    assert p not in home.store.file_records()                        # as 9.0.1: named, never recorded ...
+    assert p in home.store.file_records()                            # 9.0.3: recorded (the Mac app's way) ...
     calls = []
     real = extdb.zstd_lines
     monkeypatch.setattr(extdb, "zstd_lines", lambda path: calls.append(path) or real(path))

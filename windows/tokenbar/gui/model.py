@@ -92,6 +92,12 @@ class AppModel:
         self.scanning = True
         try:
             result = self.scanner.scan()
+            try:
+                problem = self.book.alias_problem()
+            except Exception:
+                problem = None
+            if problem:
+                result.issues.append(("model-aliases.json", problem))
             self.last_scan, self.last_scan_time = result, time.time()
             return result
         finally:

@@ -6,6 +6,7 @@ the next pass: nothing is ever silently dropped. Nothing is written into a tool'
 """
 from __future__ import annotations
 
+import json
 import os
 import time
 import traceback
@@ -19,6 +20,7 @@ from .readers.base import REGISTRY, Sink
 from .store import FileRecord, Store
 from .util import SETTLE_SECONDS, BadFile, Retry, longpath, safe_text
 
+BADFILE = "badfile:"     # meta key prefix: a recorded file that was named bad (too large to unpack) stays named after a restart
 BATCH_FILES = 200
 BATCH_EVENTS = 20000
 
@@ -63,6 +65,29 @@ class Scanner:
         self.catalog = catalog or Catalog(env)
         self.ctx = Context(env, self.catalog)
         self._bad: dict[str, tuple] = {}     # path -> (inode, size, mtime, message): a file named bad stays named until it changes
+        self._saved: dict[str, tuple] | None = None     # the same, as an earlier run left it in the index (see `_saved_bad`)
+
+    def _saved_bad(self) -> dict:
+        """path -> (inode, size, mtime, message) of the files an earlier run named bad (the index keeps them)."""
+        if self._saved is None:
+            self._saved = {}
+            try:
+                for k, v in self.store.meta_prefix(BADFILE):
+                    try:
+                        inode, size, mtime, message = json.loads(v)
+                        self._saved[k[len(BADFILE):]] = (inode, size, mtime, message)
+                    except (ValueError, TypeError):
+                        continue
+            except Exception:
+                pass
+        return self._saved
+
+    def _forget_bad(self, path: str) -> None:
+        self._saved_bad().pop(safe_text(path), None)
+        try:
+            self.store.del_meta(BADFILE + path)
+        except Exception:
+            pass
 
     def scan(self) -> ScanResult:
         result = ScanResult()
@@ -97,6 +122,7 @@ class Scanner:
         records = self.store.file_records()
         stamps = self.store.db_stamps() if fam.stamp else {}
         pending, pending_events = [], 0
+        named = []                  # (path, verdict) of files named bad in this pass: remembered across restarts
         now = time.time()
 
         def flush():
@@ -132,6 +158,15 @@ class Scanner:
             inode = st.st_ino
             old = records.get(safe_text(path))
             same = old is not None and old.inode == inode
+            verdict = self._bad.get(path)
+            if verdict is None and same:
+                verdict = self._saved_bad().get(safe_text(path))     # named by an earlier run, on a file recorded since
+            if verdict is not None:
+                if verdict[:3] == (inode, size, stamp or mtime):
+                    problems.append(verdict[3])      # named again, without reading the file again
+                    continue
+                self._bad.pop(path, None)
+                self._forget_bad(path)
             if stamp is not None:
                 # A database: the stamp of the .db and of its -wal, each on its own, compared for equality. An index
                 # that kept none (made by 9.0.0) reads each database once, which is safe: its rows have their keys.
@@ -139,12 +174,6 @@ class Scanner:
                     continue
             elif same and old.mtime >= mtime and old.size == size and (fam.mode != "lines" or old.offset >= size):
                 continue
-            verdict = self._bad.get(path)
-            if verdict is not None:
-                if verdict[:3] == (inode, size, stamp or mtime):
-                    problems.append(verdict[3])      # named again, without reading the file again
-                    continue
-                del self._bad[path]
             if fam.mode == "lines":
                 offset = old.offset if same and size > old.offset else 0
             elif fam.mode == "rowid":
@@ -170,9 +199,12 @@ class Scanner:
             if sink.bad:               # what was read counts; the file is named on every pass and not unpacked again
                 self._bad[path] = (inode, size, stamp or mtime, sink.bad)
                 problems.append(sink.bad)
+                named.append((path, self._bad[path]))
             if end is None:            # could not be read right now: left unrecorded, tried again next pass
                 continue
-            record = None if sink.retry or sink.bad else FileRecord(path, inode, size, mtime, int(end), stamp)
+            # A file that is only too large is recorded like any other (the Mac app's way): without a record every
+            # restart, and every command-line call, would unpack it again, up to the output limit.
+            record = None if sink.retry else FileRecord(path, inode, size, mtime, int(end), stamp)
             pending.append((record, sink.events, (sink.retire_keys, sink.retire_prefixes), sink.costs))
             stat.files_read += 1
             stat.events += len(sink.events)
@@ -181,6 +213,11 @@ class Scanner:
             if len(pending) >= BATCH_FILES or pending_events >= BATCH_EVENTS:
                 flush()
         flush()
+        for path, verdict in named:
+            try:
+                self.store.set_meta(BADFILE + path, json.dumps(list(verdict)))
+            except Exception:
+                pass
         if fam.after:
             try:
                 fam.after(self.ctx, d, self.store, stat.files_read)

@@ -152,15 +152,21 @@ public enum UsageText {
                 .replacingOccurrences(of: "→ elle yazılmış fiyat", with: "→ hand-written price")
             return "your alias: " + words + (inner.map { " (" + englishSource($0) + ")" } ?? "")
         }
-        if let rest = source.dropPrefix("OpenRouter en yakın: ") { return "OpenRouter, nearest paid model: " + word(rest) }
+        func reason(_ inner: String?) -> String { inner.flatMap { PriceNotesEN.notes[$0] }.map { " (" + $0 + ")" } ?? "" }
+        if let rest = source.dropPrefix("OpenRouter en yakın: ") { return "OpenRouter, nearest paid model: " + word(rest) + reason(split(rest).inner) }
         for catalog in ["OpenRouter: ", "LiteLLM: ", "models.dev: "] {
             guard let rest = source.dropPrefix(catalog) else { continue }
             var text = catalog + word(rest)
             if let tail = split(rest).inner {
                 if tail.hasPrefix("yerel takma ad: ") { text += " (local alias: " + tail.dropFirst("yerel takma ad: ".count) + ")" }
                 else if tail == "yerel kuant" { text += " (local quant)" }
+                else { text += reason(tail) }
             }
             return text
+        }
+        // A published page and its quote, then the note: `https://… "quote" (note)`.
+        for (turkish, english) in PriceNotesEN.notes where source.hasSuffix(" (" + turkish + ")") {
+            return String(source.dropLast(turkish.count + 2)) + " (" + english + ")"
         }
         return source
     }

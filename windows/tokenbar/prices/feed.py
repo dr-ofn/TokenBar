@@ -8,6 +8,7 @@ about the user. `TOKENBAR_OFFLINE=1` switches the network off for good.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import tempfile
@@ -69,8 +70,9 @@ def url_fetcher(source: str, etag: str | None):
         if e.code == 304:
             return ("notmodified",)
         raise FetchError(f"HTTP {e.code}") from e
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        raise FetchError(str(e)) from e
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
+        # HTTPException (IncompleteRead, BadStatusLine, LineTooLong) is no OSError: a cut or garbled answer is one failed source.
+        raise FetchError(str(e) or type(e).__name__) from e
 
 
 def file_fetcher(directory: str):

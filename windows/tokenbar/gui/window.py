@@ -28,6 +28,7 @@ class MainWindow:
         self.dark = self.pal is theme.DARK
         self.jobs: queue.Queue = queue.Queue()
         self.on_offline_changed = None      # the tray menu's tick follows the window's switch
+        self.on_report = None               # told each report that is painted: the tray tooltip follows the window's numbers
         self.report = None
         self._refresh_seq = 0               # the newest report asked for: an older one that ends later is dropped
         self._menu = None                   # the open menu and its variables (one set, replaced at every opening)
@@ -297,6 +298,8 @@ class MainWindow:
                 return
             self.report = report
             self._paint_report()
+            if self.on_report:
+                self.on_report(report)
         elif kind == "scanned":
             self._after_scan(payload)
         elif kind == "prices":

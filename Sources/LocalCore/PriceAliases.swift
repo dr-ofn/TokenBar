@@ -47,8 +47,13 @@ public struct UserAliases: Sendable {
     public init(json data: Data) {
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
         let aliases = (root["aliases"] as? [String: Any]) ?? (root["localProviders"] != nil ? [:] : root)
-        for (name, value) in aliases {
-            if let target = Self.target(value) { targets[ModelNames.keys(name).key1] = target }
+        // Names that fold to one key ("My-Model", "my_model"): the last one in the file wins, as on Windows. A dictionary
+        // has no order, so the text is asked for it; without one (it cannot be scanned) the names go in sorted order.
+        let written = JSONKeyOrder.keys(of: data, member: root["aliases"] is [String: Any] ? "aliases" : nil)
+        let seen = Set(written)
+        let order = written.filter { aliases[$0] != nil } + aliases.keys.filter { !seen.contains($0) }.sorted()
+        for name in order {
+            if let value = aliases[name], let target = Self.target(value) { targets[ModelNames.keys(name).key1] = target }
         }
         // One item that is not a string is dropped alone (the same as on Windows), not the whole list with it.
         for case let provider as String in (root["localProviders"] as? [Any]) ?? [] { localProviders.insert(ModelNames.providerKey(provider)) }

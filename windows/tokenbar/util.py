@@ -156,16 +156,57 @@ def loads(s: str | bytes) -> Any:
         return None
 
 
+def decode_json_bytes(raw: bytes) -> str:
+    """The text of a JSON document in the encodings Foundation's JSON reader (the Mac app's) takes: UTF-8 (with or
+    without a BOM) and UTF-16 either way round, told by the BOM or, without one, by where the zero byte of the first
+    character is (UTF-32 is not read there either: it is named as not valid JSON). PowerShell 5's `>` writes UTF-16 LE with a BOM: read as UTF-8 that is garbage."""
+    head = raw[:4]
+    if head.startswith(b"\xef\xbb\xbf"):
+        return raw[3:].decode("utf-8", "replace")
+    if head.startswith(b"\xff\xfe"):
+        return raw[2:].decode("utf-16-le", "replace")
+    if head.startswith(b"\xfe\xff"):
+        return raw[2:].decode("utf-16-be", "replace")
+    if len(head) >= 2 and head[0] == 0 and head[1] != 0:
+        return raw.decode("utf-16-be", "replace")
+    if len(head) >= 2 and head[0] != 0 and head[1] == 0:
+        return raw.decode("utf-16-le", "replace")
+    return raw.decode("utf-8", "replace")
+
+
+def _load_json_text(path: str) -> Any:
+    """json.load of a file in any of those encodings. Raises what `open`, `getsize` and `json` raise."""
+    if os.path.getsize(longpath(path)) > MAX_JSON_FILE_BYTES:
+        raise ValueError("file too large")
+    with open(longpath(path), "rb") as f:
+        return json.loads(decode_json_bytes(f.read()))
+
+
 def load_json_file(path: str) -> Any:
     """The decoded JSON document at `path`, or None (missing, unreadable, too large, not JSON).
     For files that are optional or only hint at something; a file that is counted uses `read_json_file`."""
     try:
-        if os.path.getsize(longpath(path)) > MAX_JSON_FILE_BYTES:
-            return None
-        with open(longpath(path), encoding="utf-8-sig", errors="replace") as f:
-            return json.load(f)
+        return _load_json_text(path)
     except (OSError, *JSON_ERRORS):
         return None
+
+
+def load_optional_json(path: str) -> tuple[Any, str | None]:
+    """(document, problem) of a file the user may have written: a file that is not there is no problem; one that is
+    there and cannot be used (another program holds it, too large, not JSON) is a problem that is said, not skipped."""
+    try:
+        return _load_json_text(path), None
+    except FileNotFoundError:
+        return None, None
+    except OSError as e:
+        return None, f"{path}: {type(e).__name__}: {e}"
+    except JSON_ERRORS as e:
+        try:
+            if os.path.getsize(longpath(path)) == 0:       # a file of no bytes says nothing
+                return None, None
+        except OSError:
+            return None, None
+        return None, f"{path}: not valid JSON ({type(e).__name__})"
 
 
 def read_json_file(path: str, strict: bool = False) -> Any:
@@ -179,8 +220,7 @@ def read_json_file(path: str, strict: bool = False) -> Any:
     try:
         if os.path.getsize(longpath(path)) > MAX_JSON_FILE_BYTES:
             return None
-        with open(longpath(path), encoding="utf-8-sig", errors="replace") as f:
-            data = json.load(f)
+        data = _load_json_text(path)
         if data is None and strict:             # a file of `null` is not "no bytes": it holds no data of the shape asked for
             raise BadFile(f"{path}: not valid JSON data (null)")
         return data

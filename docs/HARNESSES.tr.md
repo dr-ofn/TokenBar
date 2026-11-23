@@ -29,7 +29,7 @@ Bu sayfa `Sources/LocalCore/HarnessCatalog.swift`, `HarnessG2.swift` ve `Sources
 | opencode | `~/.local/share/opencode` | `XDG_DATA_HOME` | `oc` | `opencode.db`, salt okunur açılır | doğrulandı |
 | oh-my-pi | `~/.omp` | yok | `omp` | `agent/sessions/**/*.jsonl`; `toolResult` satırları sayılmaz | doğrulandı |
 | Qwen Code | `~/.qwen` | `QWEN_HOME` | `qwen`, `qwenc` | `usage/token-usage-*.jsonl` ve `usage_record.jsonl` (`qwen`); yeni sohbet dosyaları yalnız bunlar yoksa (`qwenc`) | `qwen` doğrulandı, `qwenc` kaynak şemasından |
-| Kimi Code | `~/.kimi-code` | yok | `kimi` | `sessions/**/wire.jsonl` | doğrulandı |
+| Kimi Code | `~/.kimi-code` | `KIMI_CODE_HOME` | `kimi` | `sessions/**/wire.jsonl` | doğrulandı |
 | Devin | `~/.local/share/devin` | yok | `devin` | `cli/transcripts/*.json`; dökümü olmayan oturumlar için CLI'nin `sessions.db`'si | doğrulandı |
 | Antigravity | `~/.gemini/antigravity-cli` | yok | `ag` | `conversations/*.db` (SQLite içinde protobuf), salt okunur | doğrulandı |
 | Crush | `~/.local/share/crush` | `XDG_DATA_HOME`, `CRUSH_GLOBAL_DATA` | `crush` | `projects.json`'ın adını verdiği her projenin veritabanı | kaynak şemasından |

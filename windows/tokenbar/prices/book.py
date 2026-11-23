@@ -8,7 +8,7 @@ import os
 import threading
 
 from ..paths import Env
-from ..util import load_json_file
+from ..util import load_optional_json
 from .engine import Pricer, call_cost, parse_aliases
 from .feed import PriceFeed, environment_offline, url_fetcher
 
@@ -39,6 +39,7 @@ class PriceBook:
         self._cache: dict = {}
         self.origins: dict = {}
         self.revision = 0
+        self.alias_issue: str | None = None      # why model-aliases.json was not used, when it is there and cannot be read
         self.date = ""
         self._refresh_started = False
 
@@ -55,16 +56,28 @@ class PriceBook:
     def reload(self) -> None:
         with self._lock:
             cats, origins = self.feed.load_local(use_cache=not self.pinned)
+            self.alias_issue = None
             if self.pinned:
                 aliases, local = {}, []
             else:
-                aliases, local = parse_aliases(load_json_file(self.aliases_env.aliases_path()))
+                data, problem = load_optional_json(self.aliases_env.aliases_path())
+                if problem is None and data is not None and not isinstance(data, dict):
+                    problem = f"{self.aliases_env.aliases_path()}: not a JSON object"
+                self.alias_issue = problem      # said (scan issues), not skipped: the prices it would have set are then the catalogue's
+                aliases, local = parse_aliases(data)
             self._pricer = Pricer(cats, load_tables(), aliases, local)
             self._cache = {}
             self.origins = origins
             days = [v.split(" ", 1)[1] for v in origins.values() if " " in v and v.split(" ", 1)[1]]
             self.date = max(days) if days else ""
             self.revision += 1
+
+    def alias_problem(self) -> str | None:
+        """Why the user's model-aliases.json is not in use (it is there and cannot be read), or None."""
+        with self._lock:
+            if self._pricer is None:
+                self.reload()
+            return self.alias_issue
 
     def resolve(self, provider: str, model: str):
         with self._lock:

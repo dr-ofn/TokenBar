@@ -31,14 +31,16 @@ public final class AppModel {
     public var priceWarning: String?
     public var isRefreshingPrices = false
 
-    private let engine = Engine()
+    private let engine: Engine
     private var watcher: FileWatcher?
     private var scanInFlight = false
     private var lastScan = Date.distantPast
     private var iconVersion: String?
     private var priceObserver: NSObjectProtocol?
 
-    public init() {
+    /// The checks pass an engine on a scratch folder; the app's own is the one on this Mac's home and index.
+    public init(engine: Engine = Engine()) {
+        self.engine = engine
         PriceBook.offline = prefs.offline
     }
 

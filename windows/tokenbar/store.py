@@ -196,6 +196,15 @@ class Store:
             rows = self.db.execute("SELECT k, v FROM meta WHERE k >= ? AND k < ?", (DBSTAMP, DBSTAMP[:-1] + ";")).fetchall()
         return {k[len(DBSTAMP):]: v for k, v in rows}
 
+    def meta_prefix(self, prefix: str) -> list[tuple[str, str]]:
+        """(key, value) of every meta row whose key starts with `prefix` (a prefix that ends in ':')."""
+        with self._lock:
+            return self.db.execute("SELECT k, v FROM meta WHERE k >= ? AND k < ?", (prefix, prefix[:-1] + chr(ord(prefix[-1]) + 1))).fetchall()
+
+    def del_meta(self, key: str) -> None:
+        with self._lock:
+            self.db.execute("DELETE FROM meta WHERE k = ?", (safe_text(key),))
+
     def set_meta(self, key: str, value: str) -> None:
         key, value = safe_text(key), safe_text(value)
         with self._lock:

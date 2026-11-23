@@ -1,5 +1,18 @@
 # Changelog
 
+## 9.0.3 — 2026-11-24
+Patch release: fixes for defects a multi-model review of the published 9.0.2 found and reproduced.
+
+- **Mac: a way out when the index fails.** The menu-bar panel and the dashboard keep their menu (with **Quit**) when the index cannot be opened or the first scan is still running; before, an error left no way to quit the app.
+- **Mac: same rules as Windows.** `KIMI_CODE_HOME` moves the Kimi Code folder on macOS too. When two names in `model-aliases.json` fold to the same name, the last one in the file wins (it was random per launch). A price-list download over 128 MiB fails and the cached prices are kept. A custom `opencode-sqlite` source with `"recursive": true` finds `opencode*.db` files at any depth, as the docs say.
+- **Mac: English price notes.** In the English interface the reason a model is priced from its nearest model, and the other price notes, are shown in English.
+- **Privacy.** The price-list requests no longer send a language preference. `PRIVACY.md` and the READMEs describe the real request pattern: at most once a day per catalogue, an hourly retry after a failure, and **Update prices**.
+- **Windows: prices.** A price download that is cut short or answered with a garbled HTTP reply no longer stops the whole refresh; that catalogue counts as failed and the others carry on. After a failure, a catalogue due for a retry sooner is no longer held back. A cache price in `model-aliases.json` that is not a number or text counts as not given, as on the Mac. A `model-aliases.json` saved as UTF-16 (for example by PowerShell's `>`) is read, and one that cannot be read is reported instead of ignored.
+- **Windows: Codex archives.** A `.jsonl.zst` archive that starts with a byte-order mark is read like a plain log, so a forked session's history is no longer counted twice. An archive too large to unpack is recorded after its readable part is counted, so it is no longer unpacked again on every start or command-line call.
+- **Windows: databases and timestamps.** A `-wal` file that cannot be inspected (for example a permission error) is reported instead of reading the database without its newest rows. Cline, Roo and Kilo messages with an impossible timestamp are dated by the file instead of landing in every period.
+- **Windows: tray and docs.** The tray tip refreshes at once when **Offline** is switched off or prices are updated. The README links in the Windows zip no longer point outside the unpacked folder.
+- **Release.** `scripts/release.sh` prints a clear error when the built app's version does not match the release version.
+
 ## 9.0.2 — 2026-11-24
 Patch release: fixes for defects a multi-model review of the published 9.0.1 found and reproduced.
 

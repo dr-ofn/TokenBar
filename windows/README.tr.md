@@ -2,7 +2,7 @@
 
 [English](README.md) · **Türkçe**
 
-Windows için TokenBar, yapay zekâ kodlama araçlarınızın kendi yerel günlüklerinden saydığı token'ları gösteren ve bu kullanımın API fiyatlarıyla ne tutacağını hesaplayan bir sistem tepsisi uygulamasıdır. [macOS için TokenBar](../README.tr.md)'ın Windows sürümüdür: aynı araçlar, aynı fiyat kuralları, aynı toplamlar (testler, kurmaca bir ev klasöründe Mac uygulamasının kendi sayımlarıyla karşılaştırır).
+Windows için TokenBar, yapay zekâ kodlama araçlarınızın kendi yerel günlüklerinden saydığı token'ları gösteren ve bu kullanımın API fiyatlarıyla ne tutacağını hesaplayan bir sistem tepsisi uygulamasıdır. [macOS için TokenBar](https://github.com/dr-ofn/TokenBar/blob/main/README.tr.md)'ın Windows sürümüdür: aynı araçlar, aynı fiyat kuralları, aynı toplamlar (testler, kurmaca bir ev klasöründe Mac uygulamasının kendi sayımlarıyla karşılaştırır).
 
 > **Durum:** kod, kurmaca ev klasörleriyle ve Mac uygulamasındakiyle aynı denetimlerle macOS'ta sınandı. **Gerçek bir Windows bilgisayarında henüz çalıştırılmadı:** tepsi simgesi, pencere, PyInstaller derlemesi ve otomatik başlatma, kütüphanelerinin belgelerinden yazıldı; `.github/workflows/windows.yml` CI işi bunları yalnızca başsız çalışabildiği ölçüde sınar. Bir şey bozuksa [sorun açın](https://github.com/dr-ofn/TokenBar/issues).
 
@@ -97,7 +97,7 @@ tokenbar-cli.exe --refresh-prices        (ya da --prices-now) fiyat listelerini 
 tokenbar-cli.exe --offline --no-scan     indeksten raporla, hiçbir şeye dokunma (--offline: hiç ağ yok)
 ```
 
-`TokenBar.exe` aynı bayrakları yanıtlar (kendi konsolu olmadığından `--output dosya.json` yanıtı dosyaya yazar).
+`TokenBar.exe` aynı bayrakları yanıtlar: `>` ya da `|` ile yanıt gönderdiğiniz yere gider; `--output dosya.json` dosyaya yazar.
 
 ## Bilinmesi gerekenler
 

@@ -74,7 +74,12 @@ CHECK_DIR="$(mktemp -d)"
 trap 'rm -rf "$CHECK_DIR"' EXIT
 ditto -x -k "$ZIP" "$CHECK_DIR"
 codesign --verify --strict "$CHECK_DIR/TokenBar.app"
-[ "$(plutil -extract CFBundleShortVersionString raw "$CHECK_DIR/TokenBar.app/Contents/Info.plist")" = "$VERSION" ]
+BUILT_VERSION="$(plutil -extract CFBundleShortVersionString raw "$CHECK_DIR/TokenBar.app/Contents/Info.plist")"
+if [ "$BUILT_VERSION" != "$VERSION" ]; then
+  echo "error: the app inside $ZIP says version '$BUILT_VERSION' (CFBundleShortVersionString), expected '$VERSION'; nothing was published." >&2
+  echo "       TOKENBAR_VERSION is stamped by scripts/build-app.sh; check that it ran with this VERSION." >&2
+  exit 1
+fi
 scripts/check-archs.sh "$CHECK_DIR/TokenBar.app/Contents/MacOS/TokenBar" >/dev/null
 
 SHA="$(cut -d' ' -f1 "$ZIP.sha256")"

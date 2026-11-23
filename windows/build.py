@@ -17,7 +17,9 @@ from tokenbar import __version__  # noqa: E402
 
 DIST = os.path.join(HERE, "dist")
 APP = os.path.join(DIST, "TokenBar")
-EXTRAS = ["README.md", "README.tr.md", "LICENSE", os.path.join("docs", "HARNESSES.md")]   # the README links to the last one
+# What the READMEs link to by a relative path (README.md <-> README.tr.md, docs/HARNESSES.md): all of it must be in the zip.
+# Anything above this folder (the Mac README) is linked by its full GitHub URL: `../README.md` leads nowhere once unzipped.
+EXTRAS = ["README.md", "README.tr.md", "LICENSE", os.path.join("docs", "HARNESSES.md")]
 
 
 def make_icon() -> str:

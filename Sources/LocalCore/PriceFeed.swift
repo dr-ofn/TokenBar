@@ -9,6 +9,8 @@ public enum PriceFetchResponse: Sendable {
 public enum PriceFeedError: Error, Sendable {
     case status(Int)
     case notFound(String)
+    /// The answer is over the limit; the download was cut off and the cached copy stays as it was.
+    case tooLarge(Int)
 }
 
 /// Where catalogue text comes from. The app uses `URLSessionPriceFetcher`; tests and tools feed from files.
@@ -18,14 +20,25 @@ public protocol PriceFetching: Sendable {
 
 /// A plain GET with no cookies, no credentials and nothing about the user: only `If-None-Match` and a product name.
 public struct URLSessionPriceFetcher: PriceFetching {
-    public init() {}
+    /// The most one answer may carry (the Windows app's limit too); the real catalogues are a few MB.
+    public static let defaultMaxResponseBytes = 128 * 1024 * 1024
+    public var maxResponseBytes: Int
+
+    public init(maxResponseBytes: Int = URLSessionPriceFetcher.defaultMaxResponseBytes) { self.maxResponseBytes = maxResponseBytes }
 
     public func fetch(_ source: PriceSource, etag: String?) async throws -> PriceFetchResponse {
-        var request = URLRequest(url: source.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        try await get(source.url, etag: etag)
+    }
+
+    /// The one request the app makes, for any address (the checks point it at a local server to see what goes out).
+    public func get(_ url: URL, etag: String?) async throws -> PriceFetchResponse {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.httpMethod = "GET"
         request.httpShouldHandleCookies = false
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("TokenBar", forHTTPHeaderField: "User-Agent")
+        // URLSession adds the system's language list on its own; the catalogues have no use for it and it says where the user is.
+        request.setValue("", forHTTPHeaderField: "Accept-Language")
         if let etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
@@ -33,15 +46,78 @@ public struct URLSessionPriceFetcher: PriceFetching {
         config.urlCredentialStorage = nil
         config.urlCache = nil
         config.timeoutIntervalForResource = 120
-        let session = URLSession(configuration: config)
+        let download = CappedDownload(limit: maxResponseBytes)
+        let session = URLSession(configuration: config, delegate: download, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw PriceFeedError.status(0) }
+        let (data, http) = try await download.run(session.dataTask(with: request))
         switch http.statusCode {
         case 200: return .ok(data, etag: http.value(forHTTPHeaderField: "ETag"))
         case 304: return .notModified
         default: throw PriceFeedError.status(http.statusCode)
         }
+    }
+}
+
+/// One download that is cut off as soon as it is over `limit` bytes (by its declared length, or by what has arrived).
+final class CappedDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let limit: Int
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var response: HTTPURLResponse?
+    private var overLimit = false
+    private var continuation: CheckedContinuation<(Data, HTTPURLResponse), Error>?
+
+    init(limit: Int) { self.limit = limit }
+
+    func run(_ task: URLSessionDataTask) async throws -> (Data, HTTPURLResponse) {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (next: CheckedContinuation<(Data, HTTPURLResponse), Error>) -> Void in
+                lock.lock()
+                continuation = next
+                lock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        lock.lock()
+        self.response = response as? HTTPURLResponse
+        if response.expectedContentLength > Int64(limit) { overLimit = true }
+        let stop = overLimit
+        lock.unlock()
+        completionHandler(stop ? .cancel : .allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        lock.lock()
+        buffer.append(data)
+        if buffer.count > limit { overLimit = true }
+        let stop = overLimit
+        if stop { buffer = Data() }
+        lock.unlock()
+        if stop { dataTask.cancel() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let next = continuation
+        continuation = nil
+        let outcome: Result<(Data, HTTPURLResponse), Error>
+        if overLimit {
+            outcome = .failure(PriceFeedError.tooLarge(limit))
+        } else if let error {
+            outcome = .failure(error)
+        } else if let response {
+            outcome = .success((buffer, response))
+        } else {
+            outcome = .failure(PriceFeedError.status(0))
+        }
+        lock.unlock()
+        next?.resume(with: outcome)
     }
 }
 

@@ -596,11 +596,12 @@ class Pricer:
             return free_entry(key, key, f"your alias: {key} -> free")
         if isinstance(alias.get("as"), str) and alias["as"]:
             return self.apply_alias(alias["as"], key, own, visited, steps)
-        inp, out = num(alias.get("input")), num(alias.get("output"))
-        if inp > 0 and out > 0 and all(is_rate(x) for x in (inp, out, num(alias.get("cacheRead")), num(alias.get("cacheWrite")))):
-            # 0 is a price (a free cache); only a key that is not there (or is null) leaves the cache priced like input
-            read = num(alias["cacheRead"]) if alias.get("cacheRead") is not None else inp
-            write = num(alias["cacheWrite"]) if alias.get("cacheWrite") is not None else inp
+        inp, out = _alias_number(alias.get("input")), _alias_number(alias.get("output"))
+        if inp > 0 and out > 0 and all(is_rate(x) for x in (inp, out, _alias_number(alias.get("cacheRead")), _alias_number(alias.get("cacheWrite")))):
+            # 0 is a price (a free cache); only a key that is not a number or text (missing, null, a list, an object)
+            # leaves the cache priced like input (the Mac app's `given`)
+            read = _alias_number(alias["cacheRead"]) if _alias_given(alias.get("cacheRead")) else inp
+            write = _alias_number(alias["cacheWrite"]) if _alias_given(alias.get("cacheWrite")) else inp
             note = alias.get("source") if isinstance(alias.get("source"), str) and alias["source"] else None
             kind = alias.get("kind") if alias.get("kind") in ("near", "other") else "alias"
             return dict(key=key, name=alias.get("name") if isinstance(alias.get("name"), str) and alias["name"] else key,
@@ -627,11 +628,21 @@ def call_cost(entry, inp, cr, cw, out, cw1h, tiered=True):
             + out * rate["output"]) / 1_000_000
 
 
+def _alias_given(v) -> bool:
+    """A hand-written rate that says something: a number, a boolean (the Mac app's NSNumber) or text."""
+    return isinstance(v, (bool, int, float, str))
+
+
+def _alias_number(v) -> float:
+    """`num`, except that a JSON true is 1 and false 0, as on the Mac app (an NSNumber); other kinds are 0."""
+    return float(v) if isinstance(v, bool) else num(v)
+
+
 def _alias_rates_ok(value) -> bool:
     """A hand-written price the book can use: input and output above zero, all four rates within the bound a catalogue
     row has to meet (the Mac app lets none other into its table; a later `break` in the lookup would otherwise stop
     at an alias that prices nothing)."""
-    rates = [num(value.get(k)) for k in ("input", "output", "cacheRead", "cacheWrite")]
+    rates = [_alias_number(value.get(k)) for k in ("input", "output", "cacheRead", "cacheWrite")]
     return rates[0] > 0 and rates[1] > 0 and all(is_rate(x) for x in rates)
 
 

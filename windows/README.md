@@ -2,7 +2,7 @@
 
 **English** · [Türkçe](README.tr.md)
 
-TokenBar for Windows is a system tray app that counts the tokens your AI coding tools used, from their own local logs, and shows what that usage would cost at API prices. It is the Windows edition of [TokenBar for macOS](../README.md): the same tools, the same price rules, the same totals (the tests check them against the Mac app's own counts on a made-up home folder).
+TokenBar for Windows is a system tray app that counts the tokens your AI coding tools used, from their own local logs, and shows what that usage would cost at API prices. It is the Windows edition of [TokenBar for macOS](https://github.com/dr-ofn/TokenBar/blob/main/README.md): the same tools, the same price rules, the same totals (the tests check them against the Mac app's own counts on a made-up home folder).
 
 > **Status:** the code is tested on macOS and Linux-style paths with made-up home folders and the same checks as the Mac app. It has **not been run on a real Windows PC yet**: the tray icon, the window, the PyInstaller build and the automatic start were written from the documentation of their libraries and are verified by the CI job in `.github/workflows/windows.yml` only as far as it can run headlessly. If something misbehaves on your PC, please [open an issue](https://github.com/dr-ofn/TokenBar/issues).
 

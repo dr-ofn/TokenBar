@@ -58,9 +58,11 @@ def uses_wal(path: str) -> bool:
 
 
 def _stamp(path: str):
+    """(size, mtime_ns), or None for a file that is not there. Any other failure to look (a permission error) raises:
+    a -wal that cannot be seen is not a -wal that does not exist, and the .db read without it would be called read."""
     try:
         st = os.stat(longpath(path))
-    except OSError:
+    except FileNotFoundError:
         return None
     return (st.st_size, st.st_mtime_ns)
 
@@ -343,9 +345,18 @@ def zstd_lines(path: str):
     zstd_decompress(_EMPTY_FRAME)                       # a missing decoder is one ZstdMissing, before the file is opened
     pending = bytearray()
     total = 0
+    first = True
 
     def decode(raw) -> str:
-        return bytes(raw).decode("utf-8", "replace").rstrip("\r")
+        nonlocal first
+        raw = bytes(raw)
+        if first:
+            # A UTF-8 BOM in front of the first line is no content (`iter_lines` and the Mac app's JSON parser agree):
+            # left in, the session_meta line does not parse and a fork's repeated history is counted again.
+            first = False
+            if raw.startswith(b"\xef\xbb\xbf"):
+                raw = raw[3:]
+        return raw.decode("utf-8", "replace").rstrip("\r")
 
     for chunk in _zstd_chunks(path=path):
         total += len(chunk)

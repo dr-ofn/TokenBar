@@ -211,7 +211,7 @@ def test_an_oversize_rollout_is_named_once_a_pass_and_not_unpacked_again(home, m
     monkeypatch.setattr(extdb, "ZSTD_MAX_LINE", 1000)
     first = home.scan()
     assert [m for _, m in first.issues if "rollout-big" in m and "too large" in m]
-    assert p not in home.store.file_records()
+    assert p in home.store.file_records()                            # 9.0.3: recorded (the Mac app's way), so not unpacked again
     calls = []
     real = extdb.zstd_lines
     monkeypatch.setattr(extdb, "zstd_lines", lambda path: calls.append(path) or real(path))

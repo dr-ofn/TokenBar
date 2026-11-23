@@ -29,7 +29,7 @@ This page is written from the catalog in `Sources/LocalCore/HarnessCatalog.swift
 | opencode | `~/.local/share/opencode` | `XDG_DATA_HOME` | `oc` | `opencode.db`, opened read-only | verified |
 | oh-my-pi | `~/.omp` | none | `omp` | `agent/sessions/**/*.jsonl`; `toolResult` lines are not counted | verified |
 | Qwen Code | `~/.qwen` | `QWEN_HOME` | `qwen`, `qwenc` | `usage/token-usage-*.jsonl` and `usage_record.jsonl` (`qwen`); the newer chat files only where those are absent (`qwenc`) | `qwen` verified, `qwenc` schema only |
-| Kimi Code | `~/.kimi-code` | none | `kimi` | `sessions/**/wire.jsonl` | verified |
+| Kimi Code | `~/.kimi-code` | `KIMI_CODE_HOME` | `kimi` | `sessions/**/wire.jsonl` | verified |
 | Devin | `~/.local/share/devin` | none | `devin` | `cli/transcripts/*.json`, plus the CLI's `sessions.db` for sessions that have no transcript | verified |
 | Antigravity | `~/.gemini/antigravity-cli` | none | `ag` | `conversations/*.db` (protobuf inside SQLite), read-only | verified |
 | Crush | `~/.local/share/crush` | `XDG_DATA_HOME`, `CRUSH_GLOBAL_DATA` | `crush` | each project's database named in `projects.json` | schema only |

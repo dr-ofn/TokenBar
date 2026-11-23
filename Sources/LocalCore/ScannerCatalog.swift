@@ -67,8 +67,8 @@ extension UsageScanner {
     }
 
     /// The databases of an `opencode-sqlite` entry: a root that is a file is one; a folder holds
-    /// `opencode.db`, and when the entry is recursive any `opencode*.db` under a `data/opencode/`
-    /// folder at any depth (the layout of a relocated XDG data home).
+    /// `opencode.db`, and when the entry is recursive any `opencode*.db` at any depth. An entry of the built-in
+    /// catalogue that is recursive keeps to the `data/opencode/` layout of a relocated XDG data home, as before.
     func openCodeDatabases(_ d: HarnessDescriptor, roots: [String]) -> [String] {
         var out: [String] = []
         var seen = Set<String>()
@@ -78,7 +78,7 @@ extension UsageScanner {
             if !Self.isFolder(root) { add(root); continue }
             for name in Self.openCodeDatabaseNames(d, in: root) { add(root + "/" + name) }
             guard d.recursive else { continue }
-            for db in walk(root, { $0.hasPrefix("opencode") && $0.hasSuffix(".db") }) where db.contains("/data/opencode/") { add(db) }
+            for db in walk(root, { $0.hasPrefix("opencode") && $0.hasSuffix(".db") }) where d.custom || db.contains("/data/opencode/") { add(db) }
         }
         return out
     }

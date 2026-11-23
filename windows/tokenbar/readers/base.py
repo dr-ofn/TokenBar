@@ -89,8 +89,13 @@ def db_stamp(path: str) -> tuple[str, int, float]:
     for p in (path, path + "-wal"):
         try:
             st = os.stat(longpath(p))
-        except OSError:
+        except FileNotFoundError:
             parts.append("-")
+            continue
+        except OSError:
+            # Seen but not looked at (a permission error): not the "-" of a file that is not there, or a -wal that
+            # turned up unreadable would match the stamp taken without one and the read, which names it, never runs.
+            parts.append("?")
             continue
         parts.append(f"{st.st_ino}:{st.st_size}:{st.st_mtime_ns}")
         size += st.st_size

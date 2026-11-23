@@ -47,7 +47,7 @@ The dollar figure is an **API-equivalent cost, not your actual bill.** It answer
 [OpenRouter](https://openrouter.ai/docs/api-reference/list-available-models), [LiteLLM](https://github.com/BerriAI/litellm) and [models.dev](https://models.dev), plus a small hand-checked table for models none of them lists (a table row copied from OpenRouter gives way to the live OpenRouter row). Every breakdown shows which source and slug priced a model.
 
 - LiteLLM and models.dev (both MIT) ship inside the app as a snapshot, so the first launch already has prices. OpenRouter is read from the network only.
-- The app refreshes each catalogue **at most once a day**, at launch and again while it keeps running: one anonymous, static GET per catalogue, with a 24 hour cache and `If-None-Match`, so an unchanged list is not downloaded again. Nothing about you is sent. See [Privacy](#privacy).
+- The app refreshes each catalogue on its own **at most once a day** (a failed try is repeated after an hour), at launch and again while it keeps running: one anonymous, static GET per catalogue, with a 24 hour cache and `If-None-Match`, so an unchanged list is not downloaded again. Nothing about you is sent. See [Privacy](#privacy).
 - **Offline:** set `TOKENBAR_OFFLINE=1`, or switch on **Offline** in the menu. The app then uses its cached or built-in prices and makes no network call at all. **Update prices** in the same menu refreshes on demand.
 - Cached copies live in `~/Library/Caches/TokenBar`.
 
@@ -55,7 +55,7 @@ The dollar figure is an **API-equivalent cost, not your actual bill.** It answer
 ## Privacy
 
 - TokenBar only **reads** local log files that your tools already wrote. It never modifies them and never uploads them. Its own two optional settings files, `custom-sources.json` and `model-aliases.json`, are yours: the app only reads them.
-- The only network traffic is **at most three static GETs per day** (one for each public price catalogue: OpenRouter, LiteLLM, models.dev; 24 h cache, ETag). They carry none of your data. Set `TOKENBAR_OFFLINE=1` to turn even that off.
+- The only network traffic is **static GETs for the three public price catalogues** (OpenRouter, LiteLLM, models.dev): on their own at most one per catalogue per day (24 h cache, ETag), a retry an hour after a failure, and one more round whenever you choose **Update prices**. They carry none of your data. Set `TOKENBAR_OFFLINE=1` to turn even that off.
 - **No telemetry, no analytics, no accounts.**
 
 Details: [PRIVACY.md](PRIVACY.md).

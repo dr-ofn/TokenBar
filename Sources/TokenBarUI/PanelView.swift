@@ -43,11 +43,7 @@ public struct PanelView: View {
                 }
                 footer(report)
             } else {
-                Text(model.notice ?? L10n.t("Araç kayıtları taranıyor…", "Scanning tool logs…"))
-                    .font(.system(size: 13))
-                    .foregroundStyle(palette.muted.color)
-                    .padding(18)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                NoReportView(model: model, palette: palette, fontSize: 13, padding: 18)
             }
         }
         .frame(width: Self.fixedSize.width, height: Self.fixedSize.height)

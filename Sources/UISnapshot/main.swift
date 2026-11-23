@@ -125,6 +125,71 @@ func contrastChecks() -> Int {
     return failed
 }
 
+/// SwiftUI hands the controls of a hosted view (buttons, the "⋯" menu) to AppKit as focus proxies or pop-up buttons;
+/// its accessibility tree stays empty without an assistive client, so the controls are counted by what AppKit sees.
+@MainActor func controlCount(in root: NSView) -> Int {
+    let name = String(describing: type(of: root))
+    let own = name.contains("KeyViewProxy") || name.contains("PopupButton") ? 1 : 0
+    return root.subviews.reduce(own) { (sum: Int, view: NSView) -> Int in sum + controlCount(in: view) }
+}
+
+/// Shows `content` in an invisible window for a moment and returns how many controls it has.
+@MainActor func hostedControls<V: View>(_ content: V, size: CGSize) async -> Int {
+    let hosting = NSHostingView(rootView: content)
+    hosting.frame = NSRect(origin: .zero, size: size)
+    let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.alphaValue = 0
+    window.contentView = hosting
+    window.orderFront(nil)
+    try? await Task.sleep(for: .seconds(1))
+    hosting.layoutSubtreeIfNeeded()
+    let count = controlCount(in: hosting)
+    window.orderOut(nil)
+    window.contentView = nil
+    return count
+}
+
+/// A menu-bar app with no Dock icon: whatever the panel shows, a menu ("Quit" is in it) has to be on it.
+@MainActor func menuReachabilityChecks(_ lang: Lang) async -> Int {
+    L10n.setLanguage(lang)
+    defer { L10n.setLanguage(nil) }
+    var failed = 0
+    func expect(_ name: String, _ cond: Bool) {
+        print((cond ? "ok   " : "FAIL ") + "[\(lang.rawValue)] " + name)
+        if !cond { failed += 1 }
+    }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tokenbar-menu-\(UUID().uuidString.prefix(8))").path
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+    // The positive control: a panel with a report has the menu (and the finder sees it).
+    let model = AppModel(engine: Engine(home: dir, dbPath: dir + "/engine-model.sqlite"))
+    if let store = try? UsageStore(path: dir + "/u.sqlite") {
+        let now = Date().timeIntervalSince1970
+        try? store.insertEvents([UsageEvent(key: "cc:a", provider: "test", model: "claude-opus-5-5", timestamp: now - 60,
+                                            tokens: TokenCounts(input: 1000, output: 100), session: "a", file: "test")])
+        model.report = (try? store.usageBook())?.report(for: .day)
+    }
+    let withReport = await hostedControls(PanelView(model: model), size: PanelView.fixedSize)
+    expect("rapor varken panelde menü var (kontrol)", model.report != nil && withReport >= 3)
+
+    // The index could not be opened (a newer schema, a lock): the panel says why, and still has the menu.
+    let broken = AppModel(engine: Engine(home: dir, dbPath: dir + "/broken.sqlite"))
+    broken.statusMessage = "Dizin şeması 99, beklenen 21: dokunulmadı"
+    expect("hata durumunda rapor yok", broken.report == nil && broken.notice != nil)
+    let brokenPanel = await hostedControls(PanelView(model: broken), size: PanelView.fixedSize)
+    let brokenDashboard = await hostedControls(DashboardView(model: broken), size: DashboardView.defaultSize)
+    expect("hata durumunda panelde menü var", brokenPanel >= 1)
+    expect("hata durumunda panoda menü var", brokenDashboard >= 1)
+    // The first scan has not finished: no report and no notice yet.
+    let scanning = AppModel(engine: Engine(home: dir, dbPath: dir + "/scanning.sqlite"))
+    let scanningPanel = await hostedControls(PanelView(model: scanning), size: PanelView.fixedSize)
+    let scanningDashboard = await hostedControls(DashboardView(model: scanning), size: DashboardView.defaultSize)
+    expect("ilk taramada panelde menü var", scanningPanel >= 1)
+    expect("ilk taramada panoda menü var", scanningDashboard >= 1)
+    return failed
+}
+
 /// The list of detected tools, the stage's two panels and what a price change does to a report.
 @MainActor func detectedAndPriceChecks(_ lang: Lang) async -> Int {
     L10n.setLanguage(lang)
@@ -283,6 +348,8 @@ final class Hits: @unchecked Sendable {
     failed += await engineStartChecks()
     failed += layoutChecks(.tr)
     failed += layoutChecks(.en)
+    failed += await menuReachabilityChecks(.tr)
+    failed += await menuReachabilityChecks(.en)
     failed += await detectedAndPriceChecks(.tr)
     failed += await detectedAndPriceChecks(.en)
     failed += contrastChecks()

@@ -33,7 +33,7 @@ public struct HarnessCatalog: Sendable {
         HarnessDescriptor(id: .qwenCode, name: "Qwen Code", keyPrefixes: ["qwen"], family: .qwenUsage,
                           roots: [HarnessRoot(".qwen", env: "QWEN_HOME")], hue: 195),
         HarnessDescriptor(id: .kimiCode, name: "Kimi Code", keyPrefixes: ["kimi"], family: .kimiWire,
-                          roots: [HarnessRoot(".kimi-code")], hue: 46),
+                          roots: [HarnessRoot(".kimi-code", env: "KIMI_CODE_HOME")], hue: 46),
         HarnessDescriptor(id: .devin, name: "Devin", keyPrefixes: ["devin"], family: .devinTranscripts,
                           roots: [HarnessRoot(".local/share/devin")], hue: 88),
         HarnessDescriptor(id: .antigravity, name: "Antigravity", keyPrefixes: ["ag"], family: .antigravitySQLite,

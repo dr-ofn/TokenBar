@@ -126,6 +126,9 @@ def run_cli(argv: list[str]) -> int:
             for source, message in result.issues:
                 print(f"{t('kaynak hatası', 'source error')} · {source}: {message}", file=sys.stderr)
         report = build_report(store, book, args.window)
+        problem = book.alias_problem()
+        if problem:
+            print(f"{t('kaynak hatası', 'source error')} · model-aliases.json: {problem}", file=sys.stderr)
         text = json.dumps(to_json(report, detected), indent=1, sort_keys=True) if args.json else render_text(report, args.window)
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:

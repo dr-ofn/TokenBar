@@ -34,10 +34,7 @@ public struct DashboardView: View {
                 .padding(.top, 20)
                 column(report)
             } else {
-                Text(model.notice ?? L10n.t("Araç kayıtları taranıyor…", "Scanning tool logs…"))
-                    .font(.system(size: 14))
-                    .foregroundStyle(palette.muted.color)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                NoReportView(model: model, palette: palette, fontSize: 14, padding: 24)
             }
         }
         .frame(minWidth: 900, minHeight: 560)
