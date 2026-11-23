@@ -62,6 +62,11 @@ jobs:
           echo "oracle : $orc"
           test -n "$cli" && test "$cli" = "$orc"
 
+      # The runner's own python3 (Homebrew) has no tkinter, and the GUI modules import it: use a Python that has it.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
       - name: "Windows directory tests, with the release and audit script tests (pytest)"
         # These tests also check the Mac side's release.sh, release-audit.sh and both workflows, and nothing else ran them:
         # the Windows runner has no bash and this job ran no pytest. They need git, bash, lipo and clang, which this runner
@@ -69,7 +74,8 @@ jobs:
         # display, and those windows are tested on the Windows runner (windows.yml). Nothing else is left out.
         run: |
           set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/pytest-venv"
+          python -m venv "$RUNNER_TEMP/pytest-venv"
+          "$RUNNER_TEMP/pytest-venv/bin/python" -c "import tkinter"
           "$RUNNER_TEMP/pytest-venv/bin/python" -m pip install --quiet pytest pyyaml zstandard Pillow
           cd windows
           PYTHONPATH="$PWD/../scripts" "$RUNNER_TEMP/pytest-venv/bin/python" -m pytest -q -p ci_no_tk
