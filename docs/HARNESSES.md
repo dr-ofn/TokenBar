@@ -72,7 +72,7 @@ If you can show a local record we missed, open a [new-harness issue](https://git
 
 ## Your own sources: `custom-sources.json`
 
-Any tool whose files one of the readers above already understands can be added without touching the code. Create `~/.config/tokenbar/custom-sources.json`:
+Any tool whose files one of the readers above already understands can be added without touching the code (as a new tool for five of the readers, as more folders of a built-in tool for the rest; see below the table). Create `~/.config/tokenbar/custom-sources.json`:
 
 ```json
 {
@@ -101,11 +101,43 @@ Any tool whose files one of the readers above already understands can be added w
 |---|---|
 | `id` | Groups sources under one tool. Letters, digits, `.`, `_`, `-`. Two entries with the same `id` appear as one tool. |
 | `name` | The name shown. Defaults to `id`. |
-| `family` | The reader to use: `anthropic-jsonl`, `codex-rollout`, `opencode-sqlite`, `open-design-events`, `omp-jsonl`, `qwen-usage`, `kimi-wire`, `devin-transcripts`, `antigravity-sqlite`, `crush-sqlite`, `goose-sqlite`, `droid-settings`, `amp-threads`, `openhands-state`, `gemini-chats`, `pi-jsonl`, `copilot-events`, `junie-events`, `codebuff-chats`, `vibe-sessions`, `augment-sessions`, `qwen-chats`, `cline-tasks`, `roo-tasks`, `copilot-chat`, `continue-tokens`, `zed-threads` or `not-countable` (detect only). |
+| `family` | The reader to use: `anthropic-jsonl`, `codex-rollout`, `opencode-sqlite`, `open-design-events`, `omp-jsonl`, `qwen-usage`, `kimi-wire`, `devin-transcripts`, `antigravity-sqlite`, `crush-sqlite`, `goose-sqlite`, `droid-settings`, `amp-threads`, `openhands-state`, `gemini-chats`, `pi-jsonl`, `copilot-events`, `junie-events`, `codebuff-chats`, `vibe-sessions`, `augment-sessions`, `qwen-chats`, `cline-tasks`, `roo-tasks`, `copilot-chat`, `continue-tokens`, `zed-threads` or `not-countable` (detect only). Only five of them can start a new tool under an `id` of your own: see [which families can start a new tool](#your-own-sources-custom-sourcesjson) below the table. |
 | `paths` | Folders or files, starting with `~/` or `/`. Required. |
 | `keyPrefix` | De-duplication key prefix: lower-case letters, digits and `-`. For a family that fixes its own prefix it must equal it; otherwise it defaults to the lower-cased `id`. A prefix a built-in tool already uses is refused. |
 | `hue` | Colour in degrees. Optional; without it the colour is derived from the `id` and stays the same between runs. |
 | `recursive` | For `opencode-sqlite` folders: look for databases at any depth. Defaults to `true`. |
+
+**Which families can start a new tool.** A reader writes its own de-duplication prefix (`cc`, `cx`, `zed`, ...), and the prefix is how a call is traced back to its tool. So a family with a fixed prefix cannot start a new tool under an `id` of your own: the entry has to use the `id` of the built-in tool that owns the prefix, and then it only adds folders to that tool (for example the `~/.claude` of a second account). A new `id` with such a family is refused (`the prefix "cc" is used by claude-code`).
+
+Families open to a new `id`: `opencode-sqlite`, `open-design-events`, `cline-tasks`, `roo-tasks`, `not-countable`.
+
+The other 23 families take the `id` of their built-in tool:
+
+| Family | `id` it requires |
+|---|---|
+| `anthropic-jsonl` | `claude-code` |
+| `codex-rollout` | `codex` |
+| `omp-jsonl` | `oh-my-pi` |
+| `qwen-usage` | `qwen-code` |
+| `kimi-wire` | `kimi-code` |
+| `devin-transcripts` | `devin` |
+| `antigravity-sqlite` | `antigravity` |
+| `crush-sqlite` | `crush` |
+| `goose-sqlite` | `goose` |
+| `droid-settings` | `factory-droid` |
+| `amp-threads` | `amp` |
+| `openhands-state` | `openhands` |
+| `gemini-chats` | `gemini-cli` |
+| `pi-jsonl` | `pi` |
+| `copilot-events` | `copilot-cli` |
+| `junie-events` | `junie` |
+| `codebuff-chats` | `codebuff` |
+| `vibe-sessions` | `mistral-vibe` |
+| `augment-sessions` | `augment` |
+| `qwen-chats` | `qwen-code` |
+| `copilot-chat` | `copilot-chat` |
+| `continue-tokens` | `continue` |
+| `zed-threads` | `zed` |
 
 A mistake in an entry is named in the app (`custom-sources.json: ...`) and only that entry is skipped.
 

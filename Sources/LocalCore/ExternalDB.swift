@@ -103,7 +103,8 @@ final class ExternalDB {
             if copied { return (folder, database) }
         } catch {
             try? fm.removeItem(atPath: folder)
-            throw StoreError(message: "\(path): kopyalanamadı (\(error.localizedDescription)); dosya okunmuş sayılmadı, sonraki taramada yeniden denenir")
+            throw StoreError(message: L10n.t("\(path): kopyalanamadı (\(error.localizedDescription)); dosya okunmuş sayılmadı, sonraki taramada yeniden denenir",
+                                                  "\(path): could not be copied (\(error.localizedDescription)); the file is not counted as read and is tried again on the next scan"))
         }
         try? fm.removeItem(atPath: folder)
         return nil

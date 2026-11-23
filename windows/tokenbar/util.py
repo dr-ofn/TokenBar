@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Iterator
@@ -111,10 +112,31 @@ def epoch(value: Any) -> float:
         return 0.0
 
 
+def run_seconds(t: float) -> float:
+    """Whole seconds of a run's start time, as the Mac app's `Safe.seconds`: a time that does not fit a signed 64-bit
+    number of seconds (1e23 milliseconds, infinity) is no run time, and the run is 0."""
+    try:
+        f = math.floor(t)
+    except (OverflowError, ValueError):
+        return 0.0
+    return float(f) if -(2 ** 63) <= f < 2 ** 63 and float(f) < 2.0 ** 63 else 0.0
+
+
 def to_seconds(v: Any) -> float:
     """A time as seconds, as the Mac app's `J.time` reads it: a number of seconds or milliseconds, or an ISO-8601
     string (0.0 for anything else)."""
     return epoch(v)
+
+
+_LONE = re.compile("[\ud800-\udfff]")
+
+
+def safe_text(s):
+    """A string SQLite can store: a lone surrogate (a JSON "\\udc80", a Windows file name with a broken pair) becomes U+FFFD,
+    as the Mac app's invalid UTF-8 does. A string with none (every ASCII one) is returned as it is."""
+    if not isinstance(s, str) or s.isascii():
+        return s
+    return _LONE.sub("\ufffd", s)
 
 
 def sha(s: str) -> str:

@@ -35,7 +35,7 @@ enum GooseParser {
     /// `{"model_name": "..."}`; anything else is an unnamed model.
     static func model(_ json: String?) -> String {
         guard let data = json?.data(using: .utf8),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let object = (J.parse(data)) as? [String: Any],
               let name = J.str(object["model_name"])?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return "unknown" }
         return name
     }

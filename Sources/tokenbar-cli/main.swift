@@ -36,20 +36,20 @@ while let a = args.next() {
         print("usage: tokenbar-cli [--window 1h|5h|24h|7d|30d|all] [--db PATH] [--home DIR] [--rebuild] [--no-scan] [--json] [--offline] [--prices-now] | --index")
         exit(0)
     default:
-        print("bilinmeyen arg: \(a)")
+        FileHandle.standardError.write(Data((L10n.t("bilinmeyen argüman: \(a)", "unknown argument: \(a)") + "\n").utf8))
         exit(1)
     }
 }
 
 guard let window = Period(rawValue: windowArg) else {
-    print("geçersiz pencere: \(windowArg)")
+    FileHandle.standardError.write(Data((L10n.t("geçersiz pencere: \(windowArg)", "invalid window: \(windowArg)") + "\n").utf8))
     exit(1)
 }
 
 // --rebuild drops every row; refuse it for the live index, where the loss is permanent.
 func canonical(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path }
 if rebuild, canonical(dbPath) == canonical(UsageStore.defaultPath) {
-    FileHandle.standardError.write(Data("tokenbar-cli: --rebuild reddedildi: veritabanı varsayılan konumda (\(dbPath))\n".utf8))
+    FileHandle.standardError.write(Data(("tokenbar-cli: " + L10n.t("--rebuild reddedildi: veritabanı varsayılan konumda (\(dbPath))", "--rebuild refused: the database is at the default location (\(dbPath))") + "\n").utf8))
     exit(2)
 }
 
@@ -58,8 +58,8 @@ do {
     if indexOnly {
         let stats = try store.storageStats()
         let last = store.meta("lastScan").flatMap(Double.init).map { Date(timeIntervalSince1970: $0).formatted() } ?? "-"
-        print("kayıt: \(try store.eventCount()) · dosya: \((try store.fileRecords()).count) · son tarama: \(last)")
-        print("tablo: \(stats.pages) sayfa (\(stats.pages * 4096 / 1024 / 1024) MB), boş \(stats.free) sayfa")
+        print(L10n.t("kayıt: ", "records: ") + "\(try store.eventCount())" + L10n.t(" · dosya: ", " · files: ") + "\((try store.fileRecords()).count)" + L10n.t(" · son tarama: ", " · last scan: ") + last)
+        print(L10n.t("tablo: \(stats.pages) sayfa (\(stats.pages * 4096 / 1024 / 1024) MB), boş \(stats.free) sayfa", "table: \(stats.pages) pages (\(stats.pages * 4096 / 1024 / 1024) MB), \(stats.free) free pages"))
         exit(0)
     }
     if rebuild { try store.reset() }

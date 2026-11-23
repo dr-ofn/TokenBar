@@ -26,7 +26,7 @@ public enum ReportJSON {
     /// Pretty, key-sorted JSON; a throw (never a trap) when the object holds something JSON cannot.
     public static func serialize(_ object: [String: Any]) throws -> Data {
         guard JSONSerialization.isValidJSONObject(object) else {
-            throw StoreError(message: "rapor JSON olarak yazılamıyor (sonlu olmayan bir sayı)")
+            throw StoreError(message: L10n.t("rapor JSON olarak yazılamıyor (sonlu olmayan bir sayı)", "the report cannot be written as JSON (a number that is not finite)"))
         }
         return try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }

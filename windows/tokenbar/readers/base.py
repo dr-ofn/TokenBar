@@ -36,6 +36,7 @@ class Sink:
         self.retire_prefixes: list[str] = []
         self.costs: list[tuple] = []     # Claude cost-state runs: (session, started, model, inp, cr, cw, out)
         self.issues: list[str] = []
+        self.bad: str | None = None   # keep what was read, name this problem every pass, never record the file (see Scanner)
         self.retry = False        # keep what was read, but do not mark the file read: it is read again next pass
 
     def add(self, key: str, ts: float, provider: str, model: str, inp: int, cr: int, cw: int, out: int, rz: int = 0,

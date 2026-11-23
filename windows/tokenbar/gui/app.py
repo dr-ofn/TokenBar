@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 import queue
 import sys
@@ -106,6 +107,8 @@ def drain(requests, window, model, icon) -> bool:
                 model.set_offline(not model.offline)
                 _tray(icon.update_menu)
                 window.refresh()
+                if not model.offline:
+                    window.prices_when_online()
             elif kind == "tooltip":
                 _tray(lambda: setattr(icon, "title", arg))
             elif kind == "scanned":
@@ -155,6 +158,9 @@ def background_pass(model, requests, state, now=None) -> None:
             # asked again after an hour (twice as long after each failure in a row), not after the six hours of a success
             state["price_failures"] = state.get("price_failures", 0) + 1
             wait = min(PRICE_CHECK_SECONDS, PRICE_RETRY_SECONDS << (state["price_failures"] - 1))
+        elif getattr(report, "retry_in", None) is not None:
+            # a failure the feed remembers on disk (an earlier run of the app): asked again when its hour is over, not in six
+            wait = min(PRICE_CHECK_SECONDS, math.ceil(report.retry_in))
         else:
             state["price_failures"] = 0
             wait = PRICE_CHECK_SECONDS

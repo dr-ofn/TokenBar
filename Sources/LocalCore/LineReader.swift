@@ -91,7 +91,7 @@ public enum LineReader {
     private static func isWholeJSON(_ buffer: [UInt8], _ count: Int) -> Bool {
         buffer.withUnsafeBytes { raw in
             let data = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: raw.baseAddress!), count: count, deallocator: .none)
-            return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
+            return (J.parse(data, options: [.fragmentsAllowed])) != nil
         }
     }
 

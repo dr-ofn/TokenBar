@@ -191,6 +191,20 @@ class MainWindow:
             self.jobs.put(("prices", report))
         threading.Thread(target=work, daemon=True).start()
 
+    def prices_when_online(self) -> None:
+        """Offline was just switched off: the price lists are asked for now, not at the next round of the scanning thread
+        (the Mac app's startBackgroundRefresh). A day's cache is respected, nothing is said unless something changed."""
+        def work():
+            try:
+                report = self.model.update_prices(force=False)
+            except Exception as e:
+                report = e
+            if report is None or (not isinstance(report, Exception) and not report.changed and not report.failed):
+                self.jobs.put(("refresh", None))
+            else:
+                self.jobs.put(("prices", report))
+        threading.Thread(target=work, daemon=True).start()
+
     # ------------------------------------------------------------------ the menu
     def _popup_menu(self, event=None) -> None:
         # Built again at every opening (the ticks follow the settings), and the one before is destroyed with the
@@ -232,6 +246,8 @@ class MainWindow:
         if self.on_offline_changed:
             self.on_offline_changed()
         self.refresh()
+        if not value:
+            self.prices_when_online()
 
     def _set_language(self, code: str) -> None:
         self.model.set_language(code)
@@ -240,9 +256,9 @@ class MainWindow:
     def _about(self) -> None:
         messagebox.showinfo("TokenBar", f"TokenBar {__version__}\n\n" + t(
             "Yapay zekâ kodlama araçlarının bu bilgisayardaki günlüklerini salt okunur okur. Veri bilgisayardan çıkmaz; "
-            "tek ağ trafiği fiyat listeleri (günde bir kez).",
+            "tek ağ trafiği fiyat listeleri (kendiliğinden günde en çok bir kez, ya da siz istediğinizde).",
             "Reads the logs AI coding tools wrote on this PC, read-only. Your data never leaves this PC; the only "
-            "network traffic is the price lists (once a day)."))
+            "network traffic is the price lists (at most once a day on its own, or when you ask)."))
 
     def _show_issues(self) -> None:
         scan = self.model.last_scan

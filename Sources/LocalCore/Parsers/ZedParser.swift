@@ -13,7 +13,7 @@ import Foundation
 /// Zed's providers differ on whether `input_tokens` counts the cache; it is taken as it stands.
 enum ZedParser {
     static func events(threadID: String, createdAt: String?, updatedAt: String?, json: Data, file: String) -> [UsageEvent] {
-        guard let thread = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any],
+        guard let thread = (J.parse(json)) as? [String: Any],
               (thread["imported"] as? Bool) != true else { return [] }
         let model = J.dict(thread["model"])
         let name = J.str(model?["model"]) ?? "unknown"

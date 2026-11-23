@@ -28,7 +28,7 @@ enum CodebuffParser {
     }
 
     static func events(data: Data, session: String, chatTime: Double, fallbackTime: Double, file: String) -> [UsageEvent] {
-        guard let messages = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else { return [] }
+        guard let messages = (J.parse(data)) as? [Any] else { return [] }
         var out: [UsageEvent] = []
         for (ordinal, raw) in messages.enumerated() {
             guard let msg = raw as? [String: Any], isAssistant(msg) else { continue }

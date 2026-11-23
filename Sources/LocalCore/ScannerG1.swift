@@ -58,7 +58,7 @@ extension UsageScanner {
         } else {
             // A file that cannot be read is an issue, read again next pass; text that is not JSON counts nothing.
             let data = try Data(contentsOf: URL(fileURLWithPath: file.path))
-            if let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { parser.consume(object: o) }
+            if let o = (J.parse(data)) as? [String: Any] { parser.consume(object: o) }
         }
         return FileRead(events: parser.events(), end: file.limit)
     }
@@ -68,7 +68,7 @@ extension UsageScanner {
     func readPi(_ file: FileToRead) throws -> FileRead {
         var parser = SessionParser(sessionID: Self.ompSession(file.path), cwd: nil, piFormat: true)
         var events: [UsageEvent] = []
-        if file.offset > 0 { seedHeader(&parser, file.path) }
+        seedHeader(&parser, file.path)
         let end = try readLines(file) { line in
             if let e = parser.consume(line: line, filePath: file.path) { events.append(e) }
         }

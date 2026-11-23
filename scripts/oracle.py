@@ -343,22 +343,27 @@ def omp_whole(u, key):
     return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
 
 
-def omp_session(path, first_line):
-    """The id in the file's `"type":"session"` header line, else the part of its name after the last `_`."""
-    if '"type":"session"' in first_line[:80]:
+def omp_session(path, lines):
+    """The id in the file's session header (its first non-blank line; whatever the spacing or key order), else the
+    part of its name after the last `_`."""
+    for line in lines:
+        if not line.strip():
+            continue
         try:
-            o = json.loads(first_line)
+            o = json.loads(line)
         except ValueError:
             o = None
-        if isinstance(o, dict) and isinstance(o.get("id"), str) and o["id"]:
+        if isinstance(o, dict) and o.get("type") == "session" and isinstance(o.get("id"), str) and o["id"]:
             return o["id"]
+        break
     return os.path.splitext(os.path.basename(path))[0].rsplit("_", 1)[-1]
 
 
 def omp():
     for path in glob.iglob(HOME + "/.omp/agent/sessions/**/*.jsonl", recursive=True):
-        all_lines = [ln.rstrip("\r\n") for ln in open(path, encoding="utf-8", errors="replace")]
-        session = omp_session(path, all_lines[0] if all_lines else "")
+        # (utf-8-sig: a BOM at the very start of the file is no content)
+        all_lines = [ln.rstrip("\r\n") for ln in open(path, encoding="utf-8-sig", errors="replace")]
+        session = omp_session(path, all_lines)
         for line in all_lines:
             # (the fields are read from the parsed message: spacing is free, and a "model" or "role" inside the content
             # is not the message's own)

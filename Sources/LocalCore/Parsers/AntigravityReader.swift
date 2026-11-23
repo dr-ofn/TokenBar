@@ -36,7 +36,7 @@ enum AntigravityReader {
             guard let usage = Proto.first(meta, path: [9]) else { return }
             let u = Proto.varints(usage)
             guard [2, 3, 4, 5, 9].allSatisfy({ (u[$0] ?? 0) < impossibleCount }) else {
-                throw StoreError(message: "\(dbPath): adım \(idx) kullanım alanları anlaşılmadı")
+                throw StoreError(message: L10n.t("\(dbPath): adım \(idx) kullanım alanları anlaşılmadı", "\(dbPath): step \(idx): usage fields not understood"))
             }
             let modelEnum = u[1] ?? 0
             let name = models[modelEnum] ?? "antigravity-model-\(modelEnum)"

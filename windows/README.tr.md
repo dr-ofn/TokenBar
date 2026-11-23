@@ -12,7 +12,7 @@ Windows için TokenBar, yapay zekâ kodlama araçlarınızın kendi yerel günl�
 - **Pencere:** dönem düğmeleri (1 sa, 5 sa, 24 sa, 7 gün, 30 gün, Tümü), toplam dolar ve token; altında her araç ve onun altında her model: token, dolar, milyon token başına fiyat (girdi / çıktı) ve çağrı sayısı.
 - **Algılandı, sayılamaz:** Cursor, Windsurf, Trae, Kiro, Warp ve Amazon Q kuruluysa listelenir, uydurma sayı gösterilmez: token verisini sağlayıcının sunucusunda ya da token sayısı olmayan günlüklerde tutarlar.
 - **26 araç sayılır** (Claude Code, Codex, opencode, oh-my-pi, Qwen Code, Kimi Code, Devin, Antigravity, Crush, Goose, Factory Droid, Amp, OpenHands, Gemini CLI, Pi, GitHub Copilot CLI, Junie, Codebuff, Mistral Vibe, Augment, Cline, Roo Code, Kilo Code, GitHub Copilot Chat, Continue, Zed). Her birinin Windows'ta verisini nerede tuttuğu ve neyin doğrulandığı [docs/HARNESSES.md](docs/HARNESSES.md) dosyasında.
-- **Fiyatlar güncel kalır:** gömülü anlık görüntü (LiteLLM, models.dev), elle denetlenmiş bir tablo ve OpenRouter, LiteLLM, models.dev genel katalogları; **günde en çok bir kez** yenilenir (24 saat önbellek, `If-None-Match`). Bulut modeli asla "ücretsiz" değildir; yerel model, bulut karşılığının fiyatıyla sayılır, karşılığı yoksa `$0`.
+- **Fiyatlar güncel kalır:** gömülü anlık görüntü (LiteLLM, models.dev), elle denetlenmiş bir tablo ve OpenRouter, LiteLLM, models.dev genel katalogları; kendiliğinden **günde en çok bir kez** yenilenir (24 saat önbellek, `If-None-Match`; başarısız indirme bir saat içinde yeniden denenir); **Fiyatları güncelle** / `--refresh-prices` ile ya da Çevrimdışı'nı kapatınca hemen yenilenir. Bulut modeli asla "ücretsiz" değildir; yerel model, bulut karşılığının fiyatıyla sayılır, karşılığı yoksa `$0`.
 - **Türkçe ve İngilizce**, Windows görüntüleme dilinden (`TOKENBAR_LANG=en` ya da `tr` ezer).
 - **Komut satırı:** `tokenbar-cli.exe --window all --json`, Mac komut satırıyla aynı JSON'u yazar.
 
@@ -53,7 +53,7 @@ Python 3.11 ya da üstü. Tepsi için `pystray` ve `Pillow`, Codex'in sıkışt�
 ## Gizlilik
 
 - TokenBar araçlarınızın zaten yazdığı günlük dosyalarını yalnızca **okur**. Onları değiştirmez, taşımaz, silmez ve yüklemez. WAL kipindeki bir veritabanı, SQLite yanına `-shm` dosyası açmadan salt okunur bile açılamaz; bu yüzden böyle veritabanları, geçici özel bir klasördeki kopyadan okunur ve kopya silinir. Bir aracın klasöründe hiçbir şey oluşturulmaz.
-- Tek ağ trafiği **günde en çok üç sabit GET isteğidir**: her genel fiyat kataloğu için bir tane (OpenRouter, LiteLLM, models.dev). Verinizden hiçbir şey taşımazlar. Bunu da kapatmak için `TOKENBAR_OFFLINE=1` ayarlayın ya da menüden **Çevrimdışı**yı işaretleyin.
+- Tek ağ trafiği **üç genel fiyat kataloğuna (OpenRouter, LiteLLM, models.dev) sabit GET istekleridir**: kendiliğinden her katalog için günde en çok bir kez, başarısızlıktan sonra bir saat içinde bir yeniden deneme, ayrıca **Fiyatları güncelle**'ye bastığınızda, `--refresh-prices` çalıştırdığınızda ya da Çevrimdışı'nı kapattığınızda bir tur daha. Verinizden hiçbir şey taşımazlar. Bunu da kapatmak için `TOKENBAR_OFFLINE=1` ayarlayın ya da menüden **Çevrimdışı**yı işaretleyin.
 - Telemetri, analitik, hesap, API anahtarı yok.
 
 TokenBar'ın kendi dosyaları:
@@ -92,8 +92,9 @@ tokenbar-cli.exe --window 7d             metin raporu
 tokenbar-cli.exe --home D:\yedek\ben     başka bir ev klasörünü oku (ortam değişkeni izlenmez;
                                          indeks kendi %LOCALAPPDATA%'nda kalır, o klasöre hiçbir şey yazılmaz;
                                          sayılarını kendi indeksinden ayırmak için --db DOSYA ekle)
-tokenbar-cli.exe --refresh-prices        (ya da --prices-now) fiyat listelerini şimdi indir (bir günlük önbelleğe saygı gösterir)
-tokenbar-cli.exe --offline --no-scan     indeksten raporla, hiçbir şeye dokunma
+tokenbar-cli.exe --refresh-prices        (ya da --prices-now) fiyat listelerini şimdi indir, bir günlük bekleme ya da önceki bir
+                                         başarısızlık ne derse desin (menüdeki Fiyatları güncelle gibi); --offline ile hiçbir şey indirilmez
+tokenbar-cli.exe --offline --no-scan     indeksten raporla, hiçbir şeye dokunma (--offline: hiç ağ yok)
 ```
 
 `TokenBar.exe` aynı bayrakları yanıtlar (kendi konsolu olmadığından `--output dosya.json` yanıtı dosyaya yazar).

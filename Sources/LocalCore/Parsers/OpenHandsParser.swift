@@ -12,7 +12,7 @@ import Foundation
 /// A metrics block with no accumulated total is summed from its `token_usages` list.
 enum OpenHandsParser {
     static func events(data: Data, conversation: String, file: String, fallbackTime: Double) -> [UsageEvent] {
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let root = (J.parse(data)) as? [String: Any],
               let stats = J.dict(root["stats"]), let byUsage = J.dict(stats["usage_to_metrics"]) else { return [] }
         var out: [UsageEvent] = []
         for (usageID, value) in byUsage {

@@ -39,7 +39,7 @@ public final class UsageStore {
             return
         }
         guard version == 0, try !tableExists("events") else {
-            throw StoreError(message: "Dizin şeması \(version), beklenen \(Self.schemaVersion): dokunulmadı (\(path))")
+            throw StoreError(message: L10n.t("Dizin şeması \(version), beklenen \(Self.schemaVersion): dokunulmadı (\(path))", "Index schema \(version), expected \(Self.schemaVersion): left untouched (\(path))"))
         }
         try db.exec("""
         CREATE TABLE IF NOT EXISTS events(

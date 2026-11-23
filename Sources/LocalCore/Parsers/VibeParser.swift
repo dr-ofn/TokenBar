@@ -8,7 +8,7 @@ import Foundation
 /// is the same as counting the growth once. The cached tokens are part of the prompt tokens.
 enum VibeParser {
     static func events(data: Data, fallbackSession: String, fallbackTime: Double, file: String) -> [UsageEvent] {
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [] }
+        guard let root = (J.parse(data)) as? [String: Any] else { return [] }
         let meta = J.dict(root["metadata"]) ?? root
         guard let stats = J.dict(meta["stats"]) else { return [] }
         let prompt = max(0, J.int(stats["session_prompt_tokens"])), cached = max(0, J.int(stats["session_cached_tokens"]))

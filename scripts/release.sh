@@ -1,24 +1,29 @@
 #!/bin/bash
 # Builds a release artifact. Uploads and pushes NOTHING; it prints the command to publish at the end.
-#   scripts/release.sh VERSION [--universal]
+#   scripts/release.sh VERSION            (a release is always a universal build: arm64 + x86_64; --universal is accepted and means the same)
 # Steps: scripts/check.sh -> scripts/build-app.sh -> dist/TokenBar-VERSION.zip (+ .sha256) -> dist/RELEASE_NOTES.md
-# First scripts/release-audit.sh: clean git tree, tag not made yet, HEAD pushed, VERSION = Windows version = CHANGELOG heading.
+# First scripts/release-audit.sh: clean git tree, tag not made yet (here or on origin), HEAD pushed, VERSION = Windows version = X.Y.Z.
+# After the build scripts/check-archs.sh stops the release when the app is not exactly arm64 + x86_64 (the cask and the README
+# say universal), and looks at the unpacked zip again.
 # VERSION is stamped into the app (Info.plist) and must have a "## VERSION" section in CHANGELOG.md.
-# A pre-release VERSION (contains "-", e.g. 9.0.0-test) may lack one; it then gets a placeholder note.
+# The version rule (the audit and windows.yml apply the same): the tag is vX.Y.Z or vX.Y.Z-pre and the version files say X.Y.Z.
+# A pre-release VERSION (contains "-", e.g. 9.0.0-test) may lack a CHANGELOG section; it then gets a placeholder note.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 
 VERSION="${1:-}"
-UNIVERSAL=()
+# Universal always: a release zip that is arm64 only would break the cask and the README's promise. Local builds
+# for development are scripts/build-app.sh (arm64 unless --universal).
+UNIVERSAL=(--universal)
 if [ -z "$VERSION" ] || [[ "$VERSION" == -* ]]; then
-  echo "usage: scripts/release.sh VERSION [--universal]   (example: scripts/release.sh 9.0.0)" >&2
+  echo "usage: scripts/release.sh VERSION   (example: scripts/release.sh 9.0.0; always a universal build)" >&2
   exit 2
 fi
 shift
 for a in "$@"; do
   case "$a" in
-    --universal) UNIVERSAL=(--universal) ;;
+    --universal) ;;                      # the default; accepted for the commands people already have
     *) echo "unknown option $a" >&2; exit 2 ;;
   esac
 done
@@ -55,6 +60,9 @@ scripts/check.sh
 echo "==> scripts/build-app.sh ${UNIVERSAL[*]:-}"
 TOKENBAR_VERSION="$VERSION" scripts/build-app.sh --no-test ${UNIVERSAL[@]+"${UNIVERSAL[@]}"}
 
+echo "==> universal? (the cask and the README say so)"
+scripts/check-archs.sh dist/TokenBar.app/Contents/MacOS/TokenBar || { echo "error: the app is not universal: nothing was zipped" >&2; exit 1; }
+
 ZIP="dist/TokenBar-$VERSION.zip"
 rm -f "$ZIP" "$ZIP.sha256"
 echo "==> $ZIP"
@@ -67,6 +75,7 @@ trap 'rm -rf "$CHECK_DIR"' EXIT
 ditto -x -k "$ZIP" "$CHECK_DIR"
 codesign --verify --strict "$CHECK_DIR/TokenBar.app"
 [ "$(plutil -extract CFBundleShortVersionString raw "$CHECK_DIR/TokenBar.app/Contents/Info.plist")" = "$VERSION" ]
+scripts/check-archs.sh "$CHECK_DIR/TokenBar.app/Contents/MacOS/TokenBar" >/dev/null
 
 SHA="$(cut -d' ' -f1 "$ZIP.sha256")"
 ARCHS="$(lipo -archs dist/TokenBar.app/Contents/MacOS/TokenBar)"

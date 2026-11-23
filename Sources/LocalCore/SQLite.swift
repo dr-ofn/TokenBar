@@ -19,7 +19,7 @@ final class SQLiteDB {
         if sqlite3_open_v2(path, &handle, flags, nil) != SQLITE_OK {
             let msg = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
             // A failed open still returns a handle; deinit closes it, so it must not close here too.
-            throw StoreError(message: "SQLite açılamadı (\(path)): \(msg)")
+            throw StoreError(message: L10n.t("SQLite açılamadı (\(path)): \(msg)", "Could not open SQLite (\(path)): \(msg)"))
         }
         sqlite3_busy_timeout(handle, 5000)
     }
@@ -33,14 +33,14 @@ final class SQLiteDB {
         if sqlite3_exec(handle, sql, nil, nil, &err) != SQLITE_OK {
             let msg = err.map { String(cString: $0) } ?? errorMessage
             sqlite3_free(err)
-            throw StoreError(message: "SQL hatası: \(msg)")
+            throw StoreError(message: L10n.t("SQL hatası: \(msg)", "SQL error: \(msg)"))
         }
     }
 
     func prepare(_ sql: String) throws -> Statement {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            throw StoreError(message: "SQL hazırlanamadı: \(errorMessage)")
+            throw StoreError(message: L10n.t("SQL hazırlanamadı: \(errorMessage)", "SQL could not be prepared: \(errorMessage)"))
         }
         return Statement(stmt: stmt, db: self)
     }
@@ -89,7 +89,7 @@ final class Statement {
         let rc = sqlite3_step(stmt)
         if rc == SQLITE_ROW { return true }
         if rc == SQLITE_DONE { return false }
-        throw StoreError(message: "SQL adımı başarısız: \(db.errorMessage)")
+        throw StoreError(message: L10n.t("SQL adımı başarısız: \(db.errorMessage)", "SQL step failed: \(db.errorMessage)"))
     }
 
     func string(_ col: Int32) -> String? {

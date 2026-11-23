@@ -182,8 +182,18 @@ class _Lock:
             if self.on and k.get("uri"):
                 raise sqlite3.OperationalError("unable to open database file")
             return real_connect(target, *a, **k)
+        real_popen = extdb.subprocess.Popen
+
+        def fake_popen(cmd, *a, **k):
+            # Without the `zstandard` package a .zst file is opened by the `zstd` program, a process of its own that the
+            # patched `open` above cannot reach. On Windows that program meets the same sharing violation, says so and
+            # exits 1 with no output: a program that does exactly that stands in for it.
+            if self.on and isinstance(cmd, (list, tuple)) and "-dc" in cmd and locked(cmd[-1]):
+                cmd = [sys.executable, "-c", "import sys; sys.exit(1)"]
+            return real_popen(cmd, *a, **k)
         monkeypatch.setattr(builtins, "open", fake_open)
         monkeypatch.setattr(extdb.sqlite3, "connect", fake_connect)
+        monkeypatch.setattr(extdb.subprocess, "Popen", fake_popen)
 
 
 def test_locked_files_are_not_recorded_as_scanned_and_are_read_once_free(tmp_path, monkeypatch):

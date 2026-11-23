@@ -17,7 +17,7 @@ from .paths import Env
 from .readers import core, g1, g2, g3  # noqa: F401
 from .readers.base import REGISTRY, Sink
 from .store import FileRecord, Store
-from .util import SETTLE_SECONDS, BadFile, Retry, longpath
+from .util import SETTLE_SECONDS, BadFile, Retry, longpath, safe_text
 
 BATCH_FILES = 200
 BATCH_EVENTS = 20000
@@ -105,7 +105,15 @@ class Scanner:
                 try:
                     self.store.apply(pending)
                 except Exception as e:
-                    problems.append(f"index write failed: {e}")
+                    # One file the index refuses must not take the others of its batch with it: each is written on its own.
+                    if len(pending) == 1:
+                        problems.append(f"{pending[0][0].path if pending[0][0] else ''}: index write failed: {e}")
+                    else:
+                        for item in pending:
+                            try:
+                                self.store.apply([item])
+                            except Exception as e2:
+                                problems.append(f"{item[0].path if item[0] else ''}: index write failed: {e2}")
             pending, pending_events = [], 0
 
         try:
@@ -122,12 +130,12 @@ class Scanner:
             if fam.stamp:
                 stamp, size, mtime = fam.stamp(path)
             inode = st.st_ino
-            old = records.get(path)
+            old = records.get(safe_text(path))
             same = old is not None and old.inode == inode
             if stamp is not None:
                 # A database: the stamp of the .db and of its -wal, each on its own, compared for equality. An index
                 # that kept none (made by 9.0.0) reads each database once, which is safe: its rows have their keys.
-                if old is not None and stamps.get(path) == stamp:
+                if old is not None and stamps.get(safe_text(path)) == stamp:
                     continue
             elif same and old.mtime >= mtime and old.size == size and (fam.mode != "lines" or old.offset >= size):
                 continue
@@ -159,9 +167,12 @@ class Scanner:
                     traceback.print_exc()
                 continue
             problems += sink.issues
+            if sink.bad:               # what was read counts; the file is named on every pass and not unpacked again
+                self._bad[path] = (inode, size, stamp or mtime, sink.bad)
+                problems.append(sink.bad)
             if end is None:            # could not be read right now: left unrecorded, tried again next pass
                 continue
-            record = None if sink.retry else FileRecord(path, inode, size, mtime, int(end), stamp)
+            record = None if sink.retry or sink.bad else FileRecord(path, inode, size, mtime, int(end), stamp)
             pending.append((record, sink.events, (sink.retire_keys, sink.retire_prefixes), sink.costs))
             stat.files_read += 1
             stat.events += len(sink.events)

@@ -23,7 +23,7 @@ extension UsageScanner {
             // change wakes the same read.
             return FileSource(name: d.name, appendOnly: false,
                               files: { roots.flatMap { [$0 + "/threads/threads.db", $0 + "/threads/threads.db-wal"] } },
-                              read: readZed)
+                              read: readZed, database: Self.databasePath)
         default:
             // `notCountable` (and any family this file does not own): found, nothing to read.
             return FileSource(name: d.name, appendOnly: false, files: { [] }, read: { _ in FileRead(events: [], end: 0) })
@@ -98,7 +98,7 @@ extension UsageScanner {
     static func modelHints(_ folder: String) -> ClineTasksParser.ModelHints {
         var hints = ClineTasksParser.ModelHints()
         if let data = try? Data(contentsOf: URL(fileURLWithPath: folder + "/task_metadata.json")),
-           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+           let root = (J.parse(data)) as? [String: Any] {
             for case let use as [String: Any] in (root["model_usage"] as? [Any]) ?? [] {
                 guard let model = J.str(use["model_id"]) else { continue }
                 let ts = J.double(use["ts"]) ?? 0
@@ -183,12 +183,12 @@ extension UsageScanner {
             case "json": json = data
             case "zstd":
                 do { json = try Self.unzstd(data) } catch {
-                    if !Zstd.isAvailable { waitsForZstd = true }
-                    note(String(describing: error))
+                    // Without zstd every compressed thread fails alike: one line says so. Any other failure is the thread's own.
+                    if !Zstd.isAvailable { waitsForZstd = true; note(Self.unzstdReason(error)) } else { note("\(id): " + Self.unzstdReason(error)) }
                     return
                 }
             default:
-                note("\(id): data_type \(type) bilinmiyor")
+                note(L10n.t("\(id): data_type \(type) bilinmiyor", "\(id): data_type \(type) is unknown"))
                 return
             }
             // The thread's adjustment row is worked out again from this reading: the figure it holds can shrink when
@@ -200,28 +200,43 @@ extension UsageScanner {
         }
         readThisPass.insert(path)
         pairStamps[path] = before
-        let shown = problems.prefix(5).map { $0 } + (problems.count > 5 ? ["(+\(problems.count - 5) iş parçacığı daha)"] : [])
+        let shown = problems.prefix(5).map { $0 } + (problems.count > 5 ? [L10n.t("(+\(problems.count - 5) iş parçacığı daha)", "(+\(problems.count - 5) more threads)")] : [])
+        // The stamp is saved only when everything was read: a thread that waits for zstd keeps the database due.
+        if !waitsForZstd { meta["dbstamp:" + path] = before }
         return FileRead(events: events, end: waitsForZstd ? 0 : file.limit, meta: meta, retire: retire, issues: shown)
+    }
+
+    /// Why a thread could not be unpacked, in the interface language and without the temporary file it was unpacked from.
+    static func unzstdReason(_ error: Error) -> String {
+        if let failure = error as? Zstd.Failure { return failure.summary }
+        if let format = error as? EditorLogFormatError { return format.message }
+        return L10n.t("açılamadı", "could not be unpacked")
     }
 
     /// Decompresses one zstd blob through the `zstd` the Codex archives already need.
     static func unzstd(_ blob: Data) throws -> Data {
         // Left unrecorded like a Codex archive: the whole database is read again once zstd is there.
         guard Zstd.isAvailable else {
-            throw EditorLogFormatError(message: "zstd yok: brew install zstd (Zed konuşmaları sıkıştırılmış, okunamıyor)")
+            throw EditorLogFormatError(message: L10n.t("zstd yok: brew install zstd (Zed konuşmaları sıkıştırılmış, okunamıyor)", "zstd is missing: brew install zstd (Zed threads are compressed and cannot be read)"))
         }
         let path = NSTemporaryDirectory() + "tokenbar-zed-\(UUID().uuidString).zst"
         guard FileManager.default.createFile(atPath: path, contents: blob, attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: path])
+            throw EditorLogFormatError(message: L10n.t("zstd için geçici dosya yazılamadı", "a temporary file for zstd could not be written"))
         }
         defer { try? FileManager.default.removeItem(atPath: path) }
         var out = Data()
         // A thread is one line of JSON: its size is the output's (what a Zed thread holds is far below this).
-        try Zstd.forEachLine(path: path, maxLine: 256 << 20, maxOutput: 256 << 20) { line in
-            out.append(contentsOf: line)
-            // The thread is one line of JSON; a line break the decoder dropped is only whitespace to it.
-            out.append(0x0A)
-            return true
+        do {
+            try Zstd.forEachLine(path: path, maxLine: 256 << 20, maxOutput: 256 << 20) { line in
+                out.append(contentsOf: line)
+                // The thread is one line of JSON; a line break the decoder dropped is only whitespace to it.
+                out.append(0x0A)
+                return true
+            }
+        } catch let failure as Zstd.Failure {
+            throw failure
+        } catch {
+            throw EditorLogFormatError(message: L10n.t("zstd çıktısı okunamadı", "the zstd output could not be read"))
         }
         return out
     }

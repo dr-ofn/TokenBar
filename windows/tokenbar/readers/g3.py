@@ -6,7 +6,7 @@ import re
 import sqlite3
 
 from .. import extdb
-from ..util import (clamp, epoch, is_number, load_json_file, mtime, read_json_file, num, seen_once, text, walk_files, whole, loads, longpath)
+from ..util import (clamp, epoch, is_number, load_json_file, mtime, read_json_file, num, seen_once, text, walk_files, whole, loads, longpath, safe_text)
 from .base import db_stamp, family
 from .core import read_devin as _read_devin_transcript, under
 
@@ -268,7 +268,7 @@ def read_openhands(ctx, d, path, offset, limit, settled, sink):
 # The CLI's own database, for the sessions that have no transcript.
 
 def _devin_sessions(ctx, d, path, sink):
-    covered = {os.path.basename(p)[:-5] for p in walk_files(os.path.join(os.path.dirname(path), "transcripts"),
+    covered = {safe_text(os.path.basename(p)[:-5]) for p in walk_files(os.path.join(os.path.dirname(path), "transcripts"),
                                                            lambda n: n.endswith(".json"))}
     for session, node, chat, created, session_model, directory in extdb.rows(     # OSError when locked, sqlite3.Error when no database: named, read again
             path, "select m.session_id, m.node_id, m.chat_message, m.created_at, s.model, s.working_directory "

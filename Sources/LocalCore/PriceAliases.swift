@@ -50,7 +50,8 @@ public struct UserAliases: Sendable {
         for (name, value) in aliases {
             if let target = Self.target(value) { targets[ModelNames.keys(name).key1] = target }
         }
-        for provider in (root["localProviders"] as? [String]) ?? [] { localProviders.insert(ModelNames.providerKey(provider)) }
+        // One item that is not a string is dropped alone (the same as on Windows), not the whole list with it.
+        for case let provider as String in (root["localProviders"] as? [Any]) ?? [] { localProviders.insert(ModelNames.providerKey(provider)) }
     }
 
     static func target(_ value: Any) -> Target? {

@@ -49,8 +49,8 @@ struct CopilotChatParser {
 
     /// An older session: the whole file is one document.
     mutating func consume(document: Data) throws {
-        guard let o = (try? JSONSerialization.jsonObject(with: document)) as? [String: Any] else {
-            throw EditorLogFormatError(message: "oturum dosyası geçerli bir JSON nesnesi değil")
+        guard let o = (J.parse(document)) as? [String: Any] else {
+            throw EditorLogFormatError(message: L10n.t("oturum dosyası geçerli bir JSON nesnesi değil", "the session file is not a valid JSON object"))
         }
         requests += ((o["requests"] as? [Any]) ?? []).map(Self.pruned)
     }

@@ -10,7 +10,7 @@ import Foundation
 /// does not change.
 enum AmpParser {
     static func events(data: Data, thread fallback: String, file: String, fallbackTime: Double) -> [UsageEvent] {
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [] }
+        guard let root = (J.parse(data)) as? [String: Any] else { return [] }
         let thread = J.str(root["id"]) ?? fallback
         let messages = (root["messages"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
         if let ledger = J.dict(root["usageLedger"]), let entries = ledger["events"] as? [Any] {

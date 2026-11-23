@@ -4,25 +4,38 @@ import Foundation
 /// file. Decompression shells out to the `zstd` CLI; archives are immutable once
 /// written, so they are always read whole rather than incrementally.
 enum Zstd {
-    enum Failure: LocalizedError {
+    enum Failure: LocalizedError, CustomStringConvertible {
         case binaryMissing
         case spawnFailed(path: String, code: Int32)
         case decompressFailed(path: String, status: Int32)
         /// One line, or the whole output, is larger than any log of a tool is: not read (a small archive can unpack to gigabytes).
         case tooLarge(path: String, what: String)
 
-        var errorDescription: String? {
+        /// The sentence without the file's path: for a caller whose file is a temporary copy that means nothing to the reader.
+        var summary: String {
             switch self {
             case .binaryMissing:
-                return "zstd yok: brew install zstd (.jsonl.zst arşivleri okunamıyor)"
-            case let .spawnFailed(path, code):
-                return "posix_spawn failed for \(path) (error \(code))"
-            case let .decompressFailed(path, status):
-                return "zstd failed (status \(status)) while reading \(path)"
+                return L10n.t("zstd yok: brew install zstd (.jsonl.zst arşivleri okunamıyor)", "zstd is missing: brew install zstd (.jsonl.zst archives cannot be read)")
+            case let .spawnFailed(_, code):
+                return L10n.t("zstd başlatılamadı (hata \(code))", "zstd could not be started (error \(code))")
+            case let .decompressFailed(_, status):
+                return L10n.t("zstd başarısız oldu (durum \(status))", "zstd failed (status \(status))")
             case let .tooLarge(_, what):
-                return "açılmış içerik çok büyük (\(what)), okunmadı"
+                return L10n.t("açılmış içerik çok büyük (\(what)), okunmadı", "the unpacked content is too large (\(what)), not read")
             }
         }
+
+        var errorDescription: String? {
+            switch self {
+            case .binaryMissing, .tooLarge:
+                return summary
+            case let .spawnFailed(path, _), let .decompressFailed(path, _):
+                return summary + L10n.t(": \(path) okunurken", " while reading \(path)")
+            }
+        }
+
+        /// What `String(describing:)` and `"\(error)"` print: the sentence, never the case and its labels.
+        var description: String { errorDescription ?? summary }
     }
 
     /// macOS has no zstd in libcompression (LZ4, ZLIB, LZMA, Brotli, LZFSE only), so the `zstd` CLI
@@ -142,8 +155,8 @@ enum Zstd {
                 pending.removeFirst(lineStart)
                 searchFrom = max(0, searchFrom - lineStart)
             }
-            if !stopped, pending.count > maxLine { oversize = "tek satır \(maxLine >> 20) MiB'ı aşıyor"; break }
-            if decompressed > maxOutput { oversize = "çıktı \(maxOutput >> 20) MiB'ı aşıyor"; break }
+            if !stopped, pending.count > maxLine { oversize = L10n.t("tek satır \(maxLine >> 20) MiB'ı aşıyor", "a single line is over \(maxLine >> 20) MiB"); break }
+            if decompressed > maxOutput { oversize = L10n.t("çıktı \(maxOutput >> 20) MiB'ı aşıyor", "the output is over \(maxOutput >> 20) MiB"); break }
         }
 
         close(readFD)

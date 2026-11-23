@@ -115,11 +115,11 @@ public struct HarnessCatalog: Sendable {
         var issues: [SourceIssue] = []
         func problem(_ message: String) { issues.append(SourceIssue(source: customSourcesName, message: message)) }
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            problem("geçerli bir JSON nesnesi değil")
+            problem(L10n.t("geçerli bir JSON nesnesi değil", "not a valid JSON object"))
             return ([], issues)
         }
         guard let entries = root["sources"] as? [Any] else {
-            problem("\"sources\" dizisi yok")
+            problem(L10n.t("\"sources\" dizisi yok", "\"sources\" array is missing"))
             return ([], issues)
         }
 
@@ -131,28 +131,29 @@ public struct HarnessCatalog: Sendable {
 
         for (index, entry) in entries.enumerated() {
             let label = "sources[\(index)]"
-            guard let o = entry as? [String: Any] else { problem("\(label): nesne değil"); continue }
-            guard let id = o["id"] as? String, idOK(id) else { problem("\(label): \"id\" yok ya da geçersiz (harf, rakam, . _ -)"); continue }
+            guard let o = entry as? [String: Any] else { problem("\(label): " + L10n.t("nesne değil", "not an object")); continue }
+            guard let id = o["id"] as? String, idOK(id) else { problem("\(label): " + L10n.t("\"id\" yok ya da geçersiz (harf, rakam, . _ -)", "\"id\" is missing or invalid (letters, digits, . _ -)")); continue }
             guard let familyName = o["family"] as? String, let family = ParserFamily(rawValue: familyName) else {
                 let known = ParserFamily.allCases.map(\.rawValue).joined(separator: ", ")
-                problem("\(label) (\(id)): bilinmeyen aile \(o["family"] ?? "yok"); bilinenler: \(known)")
+                let given = o["family"].map { "\($0)" } ?? L10n.t("yok", "none")
+                problem("\(label) (\(id)): " + L10n.t("bilinmeyen aile \(given); bilinenler: \(known)", "unknown family \(given); known: \(known)"))
                 continue
             }
             guard let paths = o["paths"] as? [String], !paths.isEmpty, paths.allSatisfy({ !$0.isEmpty }) else {
-                problem("\(label) (\(id)): \"paths\" boş ya da dizi değil")
+                problem("\(label) (\(id)): " + L10n.t("\"paths\" boş ya da dizi değil", "\"paths\" is empty or not an array"))
                 continue
             }
             var prefix = (o["keyPrefix"] as? String) ?? family.fixedPrefix ?? id.lowercased()
             if let fixed = family.fixedPrefix, prefix != fixed {
-                problem("\(label) (\(id)): \(family.rawValue) ailesinin öneki \(fixed), \"\(prefix)\" olamaz")
+                problem("\(label) (\(id)): " + L10n.t("\(family.rawValue) ailesinin öneki \(fixed), \"\(prefix)\" olamaz", "the prefix of the \(family.rawValue) family is \(fixed), \"\(prefix)\" is not allowed"))
                 continue
             }
             if family.fixedPrefix == nil, !prefixOK(prefix) {
-                problem("\(label) (\(id)): \"keyPrefix\" küçük harf, rakam ve - olmalı")
+                problem("\(label) (\(id)): " + L10n.t("\"keyPrefix\" küçük harf, rakam ve - olmalı", "\"keyPrefix\" must be lowercase letters, digits and -"))
                 continue
             }
             if let owner = claimed[prefix], owner != HarnessID(id) {
-                problem("\(label) (\(id)): \"\(prefix)\" önekini \(owner.rawValue) kullanıyor")
+                problem("\(label) (\(id)): " + L10n.t("\"\(prefix)\" önekini \(owner.rawValue) kullanıyor", "the prefix \"\(prefix)\" is used by \(owner.rawValue)"))
                 continue
             }
             prefix = prefix.lowercased()

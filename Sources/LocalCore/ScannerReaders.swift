@@ -99,7 +99,7 @@ extension UsageScanner {
     func readOmp(_ file: FileToRead) throws -> FileRead {
         var parser = SessionParser(sessionID: Self.ompSession(file.path), cwd: nil)
         var events: [UsageEvent] = []
-        if file.offset > 0 { seedHeader(&parser, file.path) }
+        seedHeader(&parser, file.path)
         let end = try readLines(file) { line in
             if let e = parser.consume(line: line, filePath: file.path) { events.append(e) }
         }
@@ -112,12 +112,11 @@ extension UsageScanner {
         return base.lastIndex(of: "_").map { String(base[base.index(after: $0)...]) } ?? base
     }
 
-    /// A resumed read starts past the header line that names the session and project.
+    /// The header line names the session and project, whether this read starts at the top of the file or past it; it is
+    /// read here, by one rule (see `SessionParser.seedHeader`), and the lines that follow do not change it.
     func seedHeader(_ parser: inout SessionParser, _ path: String) {
-        _ = try? LineReader.forEachLine(path: path, from: 0) { line in
-            _ = parser.consume(line: line, filePath: path)
-            return false
-        }
+        parser.seedHeader(path: path)
+        parser.adoptsHeaderLines = false
     }
 
     /// `usage_record.jsonl` only feeds the adjustment pass, which reads it whole itself: this
@@ -158,7 +157,12 @@ extension UsageScanner {
         readThisPass.insert(path)
         pairStamps[path] = before
         afterPairRead?(path)
-        return FileRead(events: events, end: file.limit)
+        return FileRead(events: events, end: file.limit, meta: ["dbstamp:" + path: before])
+    }
+
+    /// The database a listed file belongs to: the file itself, or for `<id>.db-wal` the `<id>.db`.
+    static func databasePath(_ file: String) -> String {
+        file.hasSuffix("-wal") ? String(file.dropLast(4)) : file
     }
 
     /// The stamp of a database and its `-wal` together, each file on its own (a sum of two mtimes is the same for

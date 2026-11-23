@@ -4,7 +4,7 @@ import Foundation
 enum OpenCodeParser {
     static func event(prefix: String, id: String, session: String, directory: String?, json: String, file: String) -> UsageEvent? {
         guard let data = json.data(using: .utf8),
-              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let obj = (J.parse(data)) as? [String: Any],
               obj["role"] as? String == "assistant",
               let provider = J.str(obj["providerID"]),
               let model = J.str(obj["modelID"]),

@@ -72,7 +72,7 @@ Kaçırdığımız bir yerel kayıt gösterebilirsen [new-harness issue](https:/
 
 ## Kendi kaynakların: `custom-sources.json`
 
-Dosyalarını yukarıdaki okuyuculardan biri zaten anlayan her araç, koda dokunmadan eklenebilir. `~/.config/tokenbar/custom-sources.json` oluştur:
+Dosyalarını yukarıdaki okuyuculardan biri zaten anlayan her araç, koda dokunmadan eklenebilir (beş okuyucuda yeni araç olarak, kalanlarda yerleşik bir aracın ek klasörleri olarak; tablonun altına bak). `~/.config/tokenbar/custom-sources.json` oluştur:
 
 ```json
 {
@@ -101,11 +101,43 @@ Dosyalarını yukarıdaki okuyuculardan biri zaten anlayan her araç, koda dokun
 |---|---|
 | `id` | Kaynakları tek araç altında toplar. Harf, rakam, `.`, `_`, `-`. Aynı `id`'li iki girdi tek araç görünür. |
 | `name` | Gösterilen ad. Varsayılan `id`. |
-| `family` | Kullanılacak okuyucu: `anthropic-jsonl`, `codex-rollout`, `opencode-sqlite`, `open-design-events`, `omp-jsonl`, `qwen-usage`, `kimi-wire`, `devin-transcripts`, `antigravity-sqlite`, `crush-sqlite`, `goose-sqlite`, `droid-settings`, `amp-threads`, `openhands-state`, `gemini-chats`, `pi-jsonl`, `copilot-events`, `junie-events`, `codebuff-chats`, `vibe-sessions`, `augment-sessions`, `qwen-chats`, `cline-tasks`, `roo-tasks`, `copilot-chat`, `continue-tokens`, `zed-threads` ya da `not-countable` (yalnız algıla). |
+| `family` | Kullanılacak okuyucu: `anthropic-jsonl`, `codex-rollout`, `opencode-sqlite`, `open-design-events`, `omp-jsonl`, `qwen-usage`, `kimi-wire`, `devin-transcripts`, `antigravity-sqlite`, `crush-sqlite`, `goose-sqlite`, `droid-settings`, `amp-threads`, `openhands-state`, `gemini-chats`, `pi-jsonl`, `copilot-events`, `junie-events`, `codebuff-chats`, `vibe-sessions`, `augment-sessions`, `qwen-chats`, `cline-tasks`, `roo-tasks`, `copilot-chat`, `continue-tokens`, `zed-threads` ya da `not-countable` (yalnız algıla). Bunlardan yalnız beşi kendi seçtiğin bir `id` ile yeni araç başlatabilir: tablonun altına bak. |
 | `paths` | `~/` ya da `/` ile başlayan klasör veya dosyalar. Zorunlu. |
 | `keyPrefix` | Tekilleştirme anahtarı öneki: küçük harf, rakam ve `-`. Önekini kendisi sabitleyen bir ailede ona eşit olmalı; yoksa varsayılan, küçük harfli `id`. Yerleşik bir aracın kullandığı önek reddedilir. |
 | `hue` | Derece cinsinden renk. İsteğe bağlı; yoksa renk `id`'den türetilir ve çalıştırmalar arasında aynı kalır. |
 | `recursive` | `opencode-sqlite` klasörleri için: veritabanlarını her derinlikte ara. Varsayılan `true`. |
+
+**Hangi aileler yeni araç başlatabilir.** Her okuyucu kendi tekilleştirme önekini yazar (`cc`, `cx`, `zed`, ...) ve bir çağrının hangi araca ait olduğu o önekle bulunur. Bu yüzden öneki sabit bir aile, kendi seçtiğin bir `id` ile yeni araç başlatamaz: girdi, o öneki taşıyan yerleşik aracın `id`'sini kullanmalıdır; o zaman yalnız o araca klasör eklemiş olur (örneğin ikinci bir hesabın `~/.claude` klasörü). Böyle bir aileyle yeni bir `id` verilirse girdi reddedilir (`"cc" önekini claude-code kullanıyor`).
+
+Yeni bir `id` ile açılabilen aileler: `opencode-sqlite`, `open-design-events`, `cline-tasks`, `roo-tasks`, `not-countable`.
+
+Diğer 23 aile, yerleşik aracının `id`'sini alır:
+
+| Aile | Gereken `id` |
+|---|---|
+| `anthropic-jsonl` | `claude-code` |
+| `codex-rollout` | `codex` |
+| `omp-jsonl` | `oh-my-pi` |
+| `qwen-usage` | `qwen-code` |
+| `kimi-wire` | `kimi-code` |
+| `devin-transcripts` | `devin` |
+| `antigravity-sqlite` | `antigravity` |
+| `crush-sqlite` | `crush` |
+| `goose-sqlite` | `goose` |
+| `droid-settings` | `factory-droid` |
+| `amp-threads` | `amp` |
+| `openhands-state` | `openhands` |
+| `gemini-chats` | `gemini-cli` |
+| `pi-jsonl` | `pi` |
+| `copilot-events` | `copilot-cli` |
+| `junie-events` | `junie` |
+| `codebuff-chats` | `codebuff` |
+| `vibe-sessions` | `mistral-vibe` |
+| `augment-sessions` | `augment` |
+| `qwen-chats` | `qwen-code` |
+| `copilot-chat` | `copilot-chat` |
+| `continue-tokens` | `continue` |
+| `zed-threads` | `zed` |
 
 Bir girdideki hata uygulamada adıyla yazılır (`custom-sources.json: ...`) ve yalnız o girdi atlanır.
 

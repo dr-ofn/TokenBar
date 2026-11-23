@@ -5,7 +5,7 @@ import Foundation
 /// last non-empty usage stands (never a sum). Input and cache counts are separate buckets.
 enum AugmentParser {
     static func events(data: Data, fallbackSession: String, fallbackTime: Double, file: String) -> [UsageEvent] {
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [] }
+        guard let root = (J.parse(data)) as? [String: Any] else { return [] }
         let session = J.str(root["sessionId"]) ?? fallbackSession
         let defaultModel = J.str(J.dict(root["agentState"])?["modelId"])
         var out: [UsageEvent] = []

@@ -6,14 +6,13 @@ refused, never rebuilt: the index holds calls whose logs may be gone.
 """
 from __future__ import annotations
 
-import math
 import os
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .readers.base import Event
-from .util import FIELD_LIMIT, clamp
+from .util import FIELD_LIMIT, clamp, run_seconds, safe_text
 
 SCHEMA_VERSION = 1
 DBSTAMP = "dbstamp:"
@@ -109,7 +108,7 @@ class Store:
                     INSERT INTO costs(session, started, model, input, cr, cw, output) VALUES(?,?,?,?,?,?,?)
                     ON CONFLICT(session, started, model) DO UPDATE SET input=max(input, excluded.input),
                       cr=max(cr, excluded.cr), cw=max(cw, excluded.cw), output=max(output, excluded.output)""",
-                                (session, float(math.floor(started)), model, i, cr, cw, o))
+                                (session, run_seconds(started), model, i, cr, cw, o))
             self.db.execute("INSERT INTO meta(k, v) VALUES('cc-adjust-stale', '1') ON CONFLICT(k) DO UPDATE SET v = '1'")
             self.db.execute("COMMIT")
         except BaseException:
@@ -186,6 +185,7 @@ class Store:
         return {r[0]: FileRecord(r[0], inode_from_db(r[1]), *r[2:]) for r in rows}
 
     def meta(self, key: str) -> str | None:
+        key = safe_text(key)
         with self._lock:
             row = self.db.execute("SELECT v FROM meta WHERE k = ?", (key,)).fetchone()
         return row[0] if row else None
@@ -197,6 +197,7 @@ class Store:
         return {k[len(DBSTAMP):]: v for k, v in rows}
 
     def set_meta(self, key: str, value: str) -> None:
+        key, value = safe_text(key), safe_text(value)
         with self._lock:
             self.db.execute("INSERT INTO meta(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", (key, value))
 
@@ -206,7 +207,8 @@ class Store:
 
     @staticmethod
     def _row(e: Event, file: str = ""):
-        return (e.key, e.provider, e.model, e.ts, e.inp, e.cr, e.cw, e.out, e.rz, e.session, e.cw1h, file)
+        return (safe_text(e.key), safe_text(e.provider), safe_text(e.model), e.ts, e.inp, e.cr, e.cw, e.out, e.rz,
+                safe_text(e.session), e.cw1h, safe_text(file))
 
     def apply(self, updates) -> None:
         """updates: list of (FileRecord | None, [Event], retire keys, cost rows), written in one transaction."""
@@ -215,6 +217,10 @@ class Store:
             try:
                 for record, events, retire, costs in updates:
                     keys, prefixes = retire if isinstance(retire, tuple) else (retire, [])
+                    keys, prefixes = [safe_text(k) for k in keys], [safe_text(p) for p in prefixes]
+                    if record is not None:
+                        record = replace(record, path=safe_text(record.path))
+                    costs = [(safe_text(c[0]), c[1], safe_text(c[2])) + tuple(c[3:]) for c in costs]
                     for key in keys:
                         self.db.execute("DELETE FROM events WHERE key = ?", (key,))
                         self.db.execute("DELETE FROM event_files WHERE key = ?", (key,))
@@ -223,7 +229,7 @@ class Store:
                     self.db.executemany(self._UPSERT, [self._row(e, record.path if record else "") for e in events])
                     if record is not None and prefixes:
                         self.db.executemany("INSERT OR IGNORE INTO event_files(key, file) VALUES(?,?)",
-                                            [(e.key, record.path) for e in events])
+                                            [(safe_text(e.key), record.path) for e in events])
                     for prefix in prefixes:
                         # Only now: a key this file wrote back has its row again, so the other copies keep their claim on it.
                         self._forget_owners(prefix, self._upper(prefix))
@@ -264,6 +270,7 @@ class Store:
 
     def replace_prefix(self, prefix: str, events: list[Event]) -> None:
         """Replaces every row under a key prefix: rows computed from others, which may shrink."""
+        prefix = safe_text(prefix)
         upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
         with self._lock:
             self.db.execute("BEGIN IMMEDIATE")
@@ -286,6 +293,7 @@ class Store:
     # ---------------------------------------------------------------------------------- reads
 
     def has_prefix(self, prefix: str) -> bool:
+        prefix = safe_text(prefix)
         upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
         with self._lock:
             return self.db.execute("SELECT 1 FROM events WHERE key >= ? AND key < ? LIMIT 1", (prefix, upper)).fetchone() is not None
@@ -296,6 +304,7 @@ class Store:
 
     def sums(self, prefix: str, exclude: str | None = None, with_provider: bool = False) -> dict:
         """(session, model) -> (input, cacheRead, cacheWrite, output[, reasoning, provider]) over a key prefix."""
+        prefix, exclude = safe_text(prefix), safe_text(exclude)
         upper = prefix[:-1] + chr(ord(prefix[-1]) + 1)
         out: dict = {}
         with self._lock:

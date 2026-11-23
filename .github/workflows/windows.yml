@@ -56,16 +56,25 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           $v = python -c "import tokenbar; print(tokenbar.__version__)"
-          "version=$v" >> $env:GITHUB_OUTPUT
-          if ($env:REF_TYPE -eq "tag" -and $env:REF_NAME -ne "v$v") {
-            # A hyphenated tag (v9.0.1-rc1) is a pre-release: scripts/release-audit.sh lets it differ from the version
-            # files, so the build does too. Any other tag must be v + the version.
+          $release = $v
+          if ($env:REF_TYPE -eq "tag") {
+            # One rule, the same as scripts/release.sh and scripts/release-audit.sh: the tag is vX.Y.Z or vX.Y.Z-pre and
+            # tokenbar.__version__ (which the audit pins to the VERSION file) is X.Y.Z. A hyphenated tag (v9.0.2-rc1) is a
+            # pre-release; the zips are named from the tag, so Mac and Windows zips of one release carry the same version.
+            if ($env:REF_NAME -cmatch '^v([0-9]+\.[0-9]+\.[0-9]+)(-[0-9A-Za-z.]+)?$') {
+              $base = $Matches[1]
+            } else {
+              throw "tag $($env:REF_NAME) is not vX.Y.Z or vX.Y.Z-pre"
+            }
+            if ($base -ne $v) {
+              throw "tag $($env:REF_NAME) does not match tokenbar.__version__ ($v): its X.Y.Z must be $v"
+            }
             if ($env:REF_NAME -like "*-*") {
               Write-Host "pre-release tag $($env:REF_NAME), tokenbar.__version__ is $v"
-            } else {
-              throw "tag $($env:REF_NAME) does not match tokenbar.__version__ ($v)"
             }
+            $release = $env:REF_NAME.Substring(1)
           }
+          "version=$release" >> $env:GITHUB_OUTPUT
 
       - name: Workflow file is valid YAML
         run: python -c "import yaml; yaml.safe_load(open('../.github/workflows/windows.yml', encoding='utf-8')); print('ok')"
@@ -149,6 +158,17 @@ jobs:
           foreach ($f in "TokenBar/TokenBar.exe", "TokenBar/tokenbar-cli.exe", "TokenBar/README.md", "TokenBar/LICENSE", "TokenBar/docs/HARNESSES.md") {
             if (-not (Test-Path "$env:RUNNER_TEMP/unzipped/$f")) { throw "missing in the zip: $f" }
           }
+
+      - name: Name the zip after the release
+        # build.py names it from tokenbar.__version__ (X.Y.Z); a pre-release tag (v9.0.2-rc1) names it X.Y.Z-rc1, like the Mac zip.
+        env:
+          RELEASE: ${{ steps.version.outputs.version }}
+        run: |
+          foreach ($f in Get-ChildItem dist/TokenBar-Windows-*.zip) {
+            $want = "TokenBar-Windows-$($env:RELEASE).zip"
+            if ($f.Name -ne $want) { Rename-Item $f.FullName $want }
+          }
+          Get-ChildItem dist/TokenBar-Windows-*.zip | ForEach-Object { $_.Name }
 
       - name: Checksum
         run: |

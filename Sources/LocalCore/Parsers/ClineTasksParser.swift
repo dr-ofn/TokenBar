@@ -38,10 +38,10 @@ enum ClineTasksParser {
         var seen: [String: Int] = [:]
         var loaded: ModelHints?
         for (index, range) in try usageObjects(data) {
-            guard let row = (try? JSONSerialization.jsonObject(with: data.subdata(in: range))) as? [String: Any], row["type"] as? String == "say",
+            guard let row = (J.parse(data.subdata(in: range))) as? [String: Any], row["type"] as? String == "say",
                   let say = row["say"] as? String, say == "api_req_started" || say == "deleted_api_reqs",
                   let text = row["text"] as? String, !text.isEmpty,
-                  let payload = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { continue }
+                  let payload = (J.parse(Data(text.utf8))) as? [String: Any] else { continue }
 
             let rawTime = J.double(row["ts"])
             // A time that is not a number an Int64 can hold (1e20) is a corrupt one: the row is dated by the file.
@@ -97,7 +97,7 @@ enum ClineTasksParser {
             var i = 0
             if n >= 3, bytes[0] == 0xEF, bytes[1] == 0xBB, bytes[2] == 0xBF { i = 3 }
             while i < n, bytes[i] == 0x20 || bytes[i] == 0x09 || bytes[i] == 0x0A || bytes[i] == 0x0D { i += 1 }
-            guard i < n, bytes[i] == 0x5B else { throw EditorLogFormatError(message: "ui_messages.json geçerli bir JSON dizisi değil") }
+            guard i < n, bytes[i] == 0x5B else { throw EditorLogFormatError(message: L10n.t("ui_messages.json geçerli bir JSON dizisi değil", "ui_messages.json is not a valid JSON array")) }
             i += 1
             var depth = 1, index = 0, start = -1
             var inString = false, escaped = false
@@ -131,7 +131,7 @@ enum ClineTasksParser {
             }
             closed = depth == 0
         }
-        guard closed else { throw EditorLogFormatError(message: "ui_messages.json yarıda kesilmiş (dizi kapanmıyor)") }
+        guard closed else { throw EditorLogFormatError(message: L10n.t("ui_messages.json yarıda kesilmiş (dizi kapanmıyor)", "ui_messages.json is cut off (the array never closes)")) }
         return out
     }
 
@@ -149,10 +149,10 @@ enum ClineTasksParser {
     static func cliEvents(data: Data, manifest: Data?, sessionFallback: String, prefix: String, fallbackTime: Double,
                           file: String) throws -> [UsageEvent] {
         guard !data.isEmpty else { return [] }
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            throw EditorLogFormatError(message: "messages.json geçerli bir JSON nesnesi değil")
+        guard let root = (J.parse(data)) as? [String: Any] else {
+            throw EditorLogFormatError(message: L10n.t("messages.json geçerli bir JSON nesnesi değil", "messages.json is not a valid JSON object"))
         }
-        let head = manifest.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+        let head = manifest.flatMap { (J.parse($0)) as? [String: Any] } ?? [:]
         let session = J.str(root["sessionId"]) ?? J.str(head["session_id"]) ?? sessionFallback
         var model = J.str(head["model"]) ?? "unknown"
         var provider = J.str(head["provider"]) ?? ""

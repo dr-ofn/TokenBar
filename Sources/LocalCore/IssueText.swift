@@ -2,6 +2,10 @@ import Foundation
 
 /// English readings of the source warnings the scanner and the index write in Turkish ("kaynak uyarıları").
 ///
+/// Since 9.0.2 the sources word their messages in the interface language where they make them (`L10n.t`), as the rest of
+/// the interface does; this table stays for a message that still arrives in Turkish (an older note, a message made
+/// before the language was pinned). A new message goes through `L10n.t`, not into this table.
+///
 /// The scanner's messages carry file names and numbers inside, so they are translated phrase by phrase: a
 /// message this table does not know stays as written, which is Turkish and never wrong. Turkish interface
 /// language shows every message untouched.

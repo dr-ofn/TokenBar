@@ -6,14 +6,13 @@ Mac app's readers (and its independent Python twin) so the same files give the s
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import sqlite3
 
 from .. import extdb
 from ..util import (JSON_ERRORS, BadFile, epoch, iter_lines, line_hash, load_json_file, loads, num, raw_num, read_json_file, text, walk_files,
-                    seen_once, mtime, clamp, longpath)
+                    seen_once, mtime, clamp, longpath, run_seconds, safe_text)
 from .base import db_stamp, family
 
 # ---------------------------------------------------------------------------------------------- helpers
@@ -99,7 +98,7 @@ def _cost_state(line, sink):
     session = text(o.get("sessionId"))
     if not session:          # the Mac reader skips a cost line without a session: it would be a row no transcript can match
         return
-    started = float(math.floor(epoch(o.get("startTime"))))      # a run is whole seconds (Mac Safe.seconds)
+    started = run_seconds(epoch(o.get("startTime")))      # a run is whole seconds, 0 when the time does not fit (Mac Safe.seconds)
     for raw, u in o["modelUsage"].items():
         if isinstance(raw, str) and isinstance(u, dict):
             # The raw name keeps `claude-opus-5-5` and `claude-opus-5-5[1m]` apart inside one run (each is its own
@@ -158,17 +157,20 @@ def _total(t):
 @family("codex-rollout", codex_files, mode="whole")
 def read_codex(ctx, d, path, offset, limit, settled, sink):
     if path.endswith(".zst"):
-        try:
-            lines = [ln for ln in extdb.zstd_lines(path) if _codex_relevant(ln)]
-        except extdb.ZstdMissing as e:
-            sink.issue(str(e))
-            return None
-        except extdb.ZstdTooLarge as e:      # named every pass, never unpacked again (the Mac app's way)
-            raise BadFile(f"{path}: unpacked content too large ({e}), not read") from None
-        except (ValueError, OSError) as e:
-            sink.issue(f"{path}: {e}")
-            return None
+        # A stream: what comes before a limit is read and counted (the totals are cumulative), as the Mac app does.
+        failure = []
+
+        def stream():
+            try:
+                for ln in extdb.zstd_lines(path):
+                    if _codex_relevant(ln):
+                        yield ln
+            except (extdb.ZstdMissing, ValueError, OSError) as e:     # ZstdTooLarge is a ValueError
+                failure.append(e)
+
+        lines = stream()
     else:
+        failure = []
         lines = (ln for ln, _ in iter_lines(path, 0, limit, True))
     session, provider, model, first_model, started, last, turn, reset = None, "openai", None, None, None, None, None, 0
     seen_meta = False
@@ -229,6 +231,16 @@ def read_codex(ctx, d, path, offset, limit, settled, sink):
             last = total
             sid = session or os.path.basename(path).split(".")[0]
             pending.append((f"cx:{sid}{f':e{reset}' if reset else ''}:{t}", ts, delta, model))
+    if failure:
+        e = failure[0]
+        if isinstance(e, extdb.ZstdTooLarge):     # named every pass, never unpacked again (the Mac app's way)
+            sink.bad = f"{path}: unpacked content too large ({e}); the calls before that point are counted"
+        elif isinstance(e, extdb.ZstdMissing):
+            sink.issue(str(e))
+            return None
+        else:
+            sink.issue(f"{path}: {e}")
+            return None
     for key, ts, dl, md in pending:
         inp = num(dl, "input_tokens")
         cached = min(num(dl, "cached_input_tokens"), inp)
@@ -307,13 +319,15 @@ def _omp_n(u, key):
 
 
 def _omp_session(path):
-    """The id in the file's `"type":"session"` header line, else its name: it keys a line that has no responseId."""
+    """The id in the file's session header (its first line, whatever the spacing), else its name: it keys a line that has no responseId."""
     stem = os.path.splitext(os.path.basename(path))[0].rsplit("_", 1)[-1]      # as the Mac reader names a session
     try:
         for line, _ in iter_lines(path, 0, 65536, True):
-            if line and '"type":"session"' in line[:80]:
-                o = loads(line)
-                return (text(o.get("id")) if isinstance(o, dict) else None) or stem
+            if not line:                 # a blank line is no first line
+                continue
+            o = loads(line)
+            if isinstance(o, dict) and o.get("type") == "session":      # spaced or not, as the Mac reader parses it
+                return text(o.get("id")) or stem
             break
     except OSError:
         pass
@@ -394,10 +408,12 @@ def qwen_adjust(ctx, d, store, changed):
                 r = loads(line) if line else None
                 if not isinstance(r, dict) or not isinstance(r.get("models"), dict):
                     continue
-                session = r.get("sessionId") if isinstance(r.get("sessionId"), str) else ""
+                # As the rows were stored (a lone surrogate is U+FFFD there): the figures held under the same name are
+                # looked up in `seen` below, and an unequal name would count the same tokens twice.
+                session = safe_text(r.get("sessionId")) if isinstance(r.get("sessionId"), str) else ""
                 for model, m in r["models"].items():
                     if isinstance(m, dict) and isinstance(model, str):
-                        key = (session, model)
+                        key = (session, safe_text(model))
                         if key not in latest or num(m, "totalTokens") >= num(latest[key][0], "totalTokens"):
                             latest[key] = (m, r.get("timestamp"))
         except OSError:

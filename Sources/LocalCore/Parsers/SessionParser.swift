@@ -18,6 +18,9 @@ public struct SessionParser {
     private var sessionID: String
     private var cwd: String?
     private let piFormat: Bool
+    /// A `"type":"session"` line met while reading names the session and project (the default, for a caller that feeds lines
+    /// one by one). A file reader turns it off after `seedHeader(path:)`: only the file's first non-blank line is a header.
+    public var adoptsHeaderLines = true
 
     public init(sessionID: String, cwd: String? = nil, piFormat: Bool = false) {
         self.sessionID = sessionID
@@ -27,15 +30,35 @@ public struct SessionParser {
 
     public var currentCwd: String? { cwd }
 
+    /// The session and project of the file's header: its first non-blank line (a UTF-8 BOM in front is no content),
+    /// when that line is `"type":"session"`; any other first line means there is no header and the file's name stands in.
+    /// The same rule as the Windows reader and the oracle: the header is found wherever the key sits in the line, and
+    /// the same whether the file is read whole or from where an earlier pass stopped. Later `session` lines are no header.
+    public mutating func seedHeader(path: String) {
+        var header: [String: Any]?
+        _ = try? LineReader.forEachLine(path: path, from: 0, upTo: 65536, consumeTrailingLine: true) { (line: UnsafeRawBufferPointer) -> Bool in
+            var bytes = line
+            if bytes.count >= 3, bytes[0] == 0xEF, bytes[1] == 0xBB, bytes[2] == 0xBF { bytes = UnsafeRawBufferPointer(rebasing: bytes[3...]) }
+            if bytes.allSatisfy({ (byte: UInt8) -> Bool in byte == 0x20 || byte == 0x09 || byte == 0x0D || byte == 0x0A }) { return true }
+            header = J.object(bytes)
+            return false
+        }
+        guard let header, (header["type"] as? String) == "session" else { return }
+        if let id = J.str(header["id"]) { sessionID = id }
+        if let path = J.str(header["cwd"]) { cwd = path }
+    }
+
     /// An event for a usage line, nil for everything else.
     public mutating func consume(line: UnsafeRawBufferPointer, filePath: String) -> UsageEvent? {
         let hasUsage = line.contains("\"usage\"")
-        // The header line is the one with `"type":"session"` near its start; only such a line is worth parsing for it.
-        let maybeHeader = line.indexOf(StaticString("\"session\""), limit: 120) >= 0
+        // A header line has `"session"` somewhere in it (it may sit past any fixed number of bytes: the key order is free).
+        let maybeHeader = adoptsHeaderLines && line.contains("\"session\"")
         guard hasUsage || maybeHeader, let object = J.object(line) else { return nil }
         if (object["type"] as? String) == "session" {
-            if let id = J.str(object["id"]) { sessionID = id }
-            if let path = J.str(object["cwd"]) { cwd = path }
+            if adoptsHeaderLines {
+                if let id = J.str(object["id"]) { sessionID = id }
+                if let path = J.str(object["cwd"]) { cwd = path }
+            }
             return nil
         }
         guard hasUsage else { return nil }

@@ -27,7 +27,7 @@ from .util import longpath
 
 COPY_LIMIT = 4 << 30
 SCRATCH_PREFIX = "tokenbar-extdb-"
-ZSTD_OUTPUT_LIMIT = 1 << 30      # what a zstd blob held in memory (a Zed thread) may unpack to
+ZSTD_OUTPUT_LIMIT = 256 << 20    # what a zstd blob held in memory (a Zed thread) may unpack to: the Mac app's (ScannerG2.swift)
 # Rollout archives are read as a stream, with the Mac app's limits (Zstd.swift): one line, and the whole output.
 # A small archive can unpack to gigabytes; past either limit it is named and not read.
 ZSTD_MAX_LINE = 64 << 20
@@ -349,8 +349,6 @@ def zstd_lines(path: str):
 
     for chunk in _zstd_chunks(path=path):
         total += len(chunk)
-        if total > ZSTD_MAX_OUTPUT:
-            raise ZstdTooLarge(f"output exceeds {ZSTD_MAX_OUTPUT >> 20} MiB")
         pending += chunk
         start = 0
         while True:
@@ -364,4 +362,7 @@ def zstd_lines(path: str):
         del pending[:start]
         if len(pending) > ZSTD_MAX_LINE:
             raise ZstdTooLarge(f"a line exceeds {ZSTD_MAX_LINE >> 20} MiB")
+        # After the chunk's own lines have been handed over (the Mac app's order): what came before the limit counts.
+        if total > ZSTD_MAX_OUTPUT:
+            raise ZstdTooLarge(f"output exceeds {ZSTD_MAX_OUTPUT >> 20} MiB")
     yield decode(pending)

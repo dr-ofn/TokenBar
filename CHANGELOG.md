@@ -1,5 +1,20 @@
 # Changelog
 
+## 9.0.2 — 2026-11-24
+Patch release: fixes for defects a multi-model review of the published 9.0.1 found and reproduced.
+
+- **Invalid characters no longer cost calls.** On the Mac a log line holding invalid UTF-8 or a lone surrogate escape was dropped; it is now read with the bad part as U+FFFD, so the Mac and Windows count the same calls. On Windows one such line could wipe the counts of every other file scanned in the same pass; it no longer can. Windows also handles such names the same way everywhere: a Zed thread with invalid bytes is read instead of dropped, a Qwen Code session no longer gets a second adjustment that counted it twice, a Cline, Roo or Kilo task folder with such a name no longer loses its calls, and a Devin transcript with such a name no longer leaves its database rows counted twice.
+- **oh-my-pi and Pi session headers.** The header is the first non-blank line (a BOM and blank lines are skipped, and it may be long) on both systems and on every read, so a header written with spaces, after a blank line or past the first 120 bytes no longer falls back to the file name, and two sessions with identical call lines are no longer merged into one.
+- **Windows: oversized Codex archives.** A `.zst` archive past the size limit still counts the calls read before the limit instead of losing all of them.
+- **Zed.** On Windows a thread that cannot be unpacked is named as a problem instead of being skipped silently, with the Mac app's 256 MiB limit; on the Mac the message is the thread id and a sentence in your language instead of an internal error with a temporary path.
+- **Windows: Claude Code cost records.** A record with an impossible start time no longer triggers a repair on every start.
+- **Windows: prices.** After a failed price fetch a restart no longer delays the retry from one hour to six; switching **Offline** off fetches prices right away; a damaged cache timestamp or failure time no longer crashes the app; a price download is cut off after 120 seconds.
+- **Mac: Antigravity and Zed.** Their databases are compared by an inode, size and nanosecond-time stamp like opencode's, so a clock set back or a restored backup no longer hides new calls. After the update each database is read once more, without counting anything twice.
+- **Mac: messages in your language.** Source warnings, scan errors and `tokenbar-cli` messages follow the interface language (`TOKENBAR_LANG=en` no longer prints Turkish), and command-line usage errors go to stderr.
+- **Mac: `model-aliases.json`.** One non-string item in `localProviders` no longer drops the whole list (as on Windows).
+- **Docs.** `docs/HARNESSES.md` says which reader families can start a new tool in `custom-sources.json` (five) and which must use their built-in tool's id (the other 23). The Windows README and About box describe `--refresh-prices`, `--prices-now` and `--offline` as they behave.
+- **Release.** `scripts/release.sh` always builds a universal app and checks arm64 + x86_64 before and after zipping. One version rule for tags (`vX.Y.Z` or `vX.Y.Z-pre`; files say `X.Y.Z`; zips are named from the tag), shared by the audit, `release.sh` and the Windows workflow. The audit also refuses a tag that already exists on GitHub. CI now runs the Windows test suite, including the release-script tests, on the macOS job.
+
 ## 9.0.1 — 2026-11-23
 Patch release: fixes for defects an independent review found in 9.0.0, counting accuracy first.
 

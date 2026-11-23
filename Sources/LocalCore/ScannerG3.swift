@@ -270,7 +270,7 @@ extension HarnessCatalog {
         var out: [(String?, String)] = []
         for root in roots {
             guard let data = FileManager.default.contents(atPath: root + "/projects.json"),
-                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let object = (J.parse(data)) as? [String: Any],
                   let projects = object["projects"] as? [Any] else { continue }
             for case let project as [String: Any] in projects {
                 guard let dir = J.str(project["data_dir"]) else { continue }

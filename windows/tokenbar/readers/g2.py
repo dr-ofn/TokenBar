@@ -334,6 +334,7 @@ def read_zed(ctx, d, path, offset, limit, settled, sink):
         sink.issue(f"{path}: {e}")
         return None
     unknown = 0
+    unreadable = []                          # threads that could not be unpacked: the thread is lost, not the file
     for tid, updated, made, kind, blob in rows:
         if tid is None:                     # a thread with no id has no key (the Mac reader skips it)
             continue
@@ -346,13 +347,19 @@ def read_zed(ctx, d, path, offset, limit, settled, sink):
                 sink.issue(str(e))
                 sink.retry = True            # left unrecorded: the whole database is read again once zstd is there
                 continue
-            except ValueError:
+            except extdb.ZstdTooLarge as e:
+                unreadable.append(f"{tid}: unpacked content too large ({e}), not read")
+                continue
+            except ValueError as e:
+                unreadable.append(f"{tid}: {e}")
                 continue
         elif kind != "json":
             unknown += 1
             continue
         try:
-            thread = json.loads(raw)
+            # Text, not bytes: json.loads on invalid UTF-8 bytes raises and the thread would be dropped without a word,
+            # where the Mac app (J.parse) reads it with U+FFFD for the bad bytes. A BOM is skipped, as json.loads did.
+            thread = json.loads(raw.decode("utf-8-sig", "replace"))
         except JSON_ERRORS:
             continue
         if not isinstance(thread, dict):
@@ -380,6 +387,10 @@ def read_zed(ctx, d, path, offset, limit, settled, sink):
         gap = [max(0, a - b) for a, b in zip(total, sums)]
         if sum(gap):
             sink.add(f"zed:adj:{tid}", when, provider, name, gap[0], gap[1], gap[2], gap[3], 0)
+    for message in dict.fromkeys(unreadable[:5]):      # the first five, as the Mac app names them
+        sink.issue(f"{path}: {message}")
+    if len(unreadable) > 5:
+        sink.issue(f"{path}: (+{len(unreadable) - 5} more threads)")
     if unknown:
         sink.issue(f"{path}: {unknown} thread(s) with an unknown data_type were skipped")
     return limit

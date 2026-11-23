@@ -12,7 +12,7 @@ TokenBar for Windows is a system tray app that counts the tokens your AI coding 
 - **Window:** period buttons (1 h, 5 h, 24 h, 7 days, 30 days, All), total dollars and tokens, then every tool and, under it, every model with tokens, dollars, price per million tokens (input / output) and calls.
 - **Detected, cannot be counted:** Cursor, Windsurf, Trae, Kiro, Warp and Amazon Q are listed when they are installed, with no invented numbers: they keep token data on the vendor's servers or in logs without token counts.
 - **26 tools counted** (Claude Code, Codex, opencode, oh-my-pi, Qwen Code, Kimi Code, Devin, Antigravity, Crush, Goose, Factory Droid, Amp, OpenHands, Gemini CLI, Pi, GitHub Copilot CLI, Junie, Codebuff, Mistral Vibe, Augment, Cline, Roo Code, Kilo Code, GitHub Copilot Chat, Continue, Zed). Where each one keeps its data on Windows, and what is verified, is in [docs/HARNESSES.md](docs/HARNESSES.md).
-- **Prices stay current:** an embedded snapshot (LiteLLM, models.dev), a hand-checked table, and the public catalogues OpenRouter, LiteLLM and models.dev, refreshed **at most once a day** (24 h cache, `If-None-Match`). Cloud models are never "free"; a local model costs its cloud equivalent, or `$0` when it has none.
+- **Prices stay current:** an embedded snapshot (LiteLLM, models.dev), a hand-checked table, and the public catalogues OpenRouter, LiteLLM and models.dev, refreshed on their own **at most once a day** (24 h cache, `If-None-Match`; a failed fetch is tried again within the hour), or at once with **Update prices** / `--refresh-prices`, or when you switch Offline off. Cloud models are never "free"; a local model costs its cloud equivalent, or `$0` when it has none.
 - **English and Turkish**, from the Windows display language (`TOKENBAR_LANG=en` or `tr` overrides it).
 - **Command line:** `tokenbar-cli.exe --window all --json` prints the same JSON as the Mac app's command line.
 
@@ -54,7 +54,7 @@ Python 3.11 or newer. The tray needs `pystray` and `Pillow`; `zstandard` reads C
 ## Privacy
 
 - TokenBar only **reads** the log files your tools already wrote. It never modifies, moves or deletes them, and never uploads them. A database in WAL mode cannot be opened even read-only without SQLite making a `-shm` file next to it, so such databases are read from a copy in a private temporary folder that is deleted again. Nothing is ever created in a tool's folder.
-- The only network traffic is **at most three static GET requests a day**, one for each public price catalogue (OpenRouter, LiteLLM, models.dev). They carry none of your data. Set `TOKENBAR_OFFLINE=1`, or tick **Offline** in the menu, to turn even that off.
+- The only network traffic is **static GET requests for the three public price catalogues** (OpenRouter, LiteLLM, models.dev): at most once a day each on their own, a retry within the hour after a failure, and one more round whenever you press **Update prices**, run `--refresh-prices` or switch Offline off. They carry none of your data. Set `TOKENBAR_OFFLINE=1`, or tick **Offline** in the menu, to turn even that off.
 - No telemetry, no analytics, no accounts, no API keys.
 
 Where TokenBar keeps its own files:
@@ -93,8 +93,9 @@ tokenbar-cli.exe --window 7d             a text report
 tokenbar-cli.exe --home D:\backup\me     read another home folder (no environment variable is followed;
                                          the index stays in your own %LOCALAPPDATA%, nothing is written into that
                                          folder; add --db FILE to keep its numbers out of your own index)
-tokenbar-cli.exe --refresh-prices        (also --prices-now) fetch the price lists now (a day's cache is respected)
-tokenbar-cli.exe --offline --no-scan     report from the index, touch nothing
+tokenbar-cli.exe --refresh-prices        (also --prices-now) fetch the price lists now, whatever the one-day wait or an
+                                         earlier failure says (like the menu's Update prices); with --offline nothing is fetched
+tokenbar-cli.exe --offline --no-scan     report from the index, touch nothing (--offline: no network at all)
 ```
 
 `TokenBar.exe` answers the same flags: with `>` or `|` the answer goes where you sent it; `--output file.json` writes it to a file.

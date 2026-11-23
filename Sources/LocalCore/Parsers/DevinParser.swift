@@ -4,7 +4,7 @@ import Foundation
 /// Agent steps carry `metrics {prompt_tokens (incl. cached), completion_tokens, cached_tokens}`.
 enum DevinParser {
     static func events(data: Data, fallbackSession: String, file: String) -> [UsageEvent] {
-        guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let o = (J.parse(data)) as? [String: Any],
               let steps = o["steps"] as? [[String: Any]] else { return [] }
         let session = J.str(o["session_id"]) ?? fallbackSession
         let agentModel = J.dict(o["agent"]).flatMap { J.str($0["model_name"]) }

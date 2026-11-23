@@ -26,6 +26,8 @@ URLS = {
     "modelsdev": "https://models.dev/api.json",
 }
 MAX_RESPONSE_BYTES = 128 * 1024 * 1024
+FETCH_DEADLINE = 120      # seconds for one whole download, the Mac app's timeoutIntervalForResource (the socket timeout is per read)
+_clock = time.monotonic
 USER_AGENT = "TokenBar"
 
 
@@ -46,11 +48,23 @@ def url_fetcher(source: str, etag: str | None):
     if etag:
         req.add_header("If-None-Match", etag)
     try:
+        deadline = _clock() + FETCH_DEADLINE
         with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read(MAX_RESPONSE_BYTES + 1)
-            if len(body) > MAX_RESPONSE_BYTES:
-                raise FetchError("response too large")
-            return "ok", body, resp.headers.get("ETag")
+            # One read at a time (read1 returns what has arrived): a server that drips a byte every few seconds never
+            # trips the socket timeout, so the whole download has a limit of its own and the price lock is let go.
+            read = getattr(resp, "read1", resp.read)
+            parts, size = [], 0
+            while True:
+                if _clock() > deadline:
+                    raise FetchError(f"timed out after {FETCH_DEADLINE} s")
+                chunk = read(1 << 16)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_RESPONSE_BYTES:
+                    raise FetchError("response too large")
+                parts.append(chunk)
+            return "ok", b"".join(parts), resp.headers.get("ETag")
     except urllib.error.HTTPError as e:
         if e.code == 304:
             return ("notmodified",)
@@ -77,6 +91,7 @@ class RefreshReport:
     fresh: list = field(default_factory=list)
     failed: dict = field(default_factory=dict)
     skipped: list = field(default_factory=list)
+    retry_in: float | None = None       # seconds until the earliest source that waits out a failure (kept on disk) may be asked
 
     @property
     def changed(self) -> bool:
@@ -155,7 +170,9 @@ class PriceFeed:
         if not rows and not exact:      # a catalogue of routes alone has no winner, but its exact rows are a cache
             return None
         etag = root.get("etag")
-        return CacheFile(etag if isinstance(etag, str) else None, float(fetched), rows, exact, schema)
+        # A time no clock can show (Infinity, NaN, 1e300, before 1970) makes this an old copy: still read, asked for again.
+        fetched = float(fetched) if 0 <= fetched < 1e11 else 0.0
+        return CacheFile(etag if isinstance(etag, str) else None, fetched, rows, exact, schema)
 
     def write_cache(self, source, rows, etag, fetched) -> None:
         """What a lookup can return: the row the index picks for each key and the rows an exact id reaches with a price of
@@ -177,7 +194,10 @@ class PriceFeed:
                 failed = json.load(f).get("failed")
         except (OSError, ValueError, AttributeError, RecursionError):
             return {}
-        return {k: v for k, v in failed.items() if isinstance(k, str) and isinstance(v, (int, float))} if isinstance(failed, dict) else {}
+        # A time no clock can show (a 400-digit integer, NaN, Infinity, a bool, before 1970) is no failure: `now - last`
+        # would raise OverflowError. The same range read_cache accepts for `fetched`.
+        return {k: v for k, v in failed.items()
+                if isinstance(k, str) and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1e11} if isinstance(failed, dict) else {}
 
     # ---- reading
     def snapshot(self) -> tuple[dict, str]:
@@ -200,7 +220,10 @@ class PriceFeed:
             cache = self.read_cache(source) if use_cache else None
             if cache:
                 cats.append(Catalogue(source, cache.rows, cache.exact))
-                origins[source] = "cache " + time.strftime("%Y-%m-%d", time.gmtime(cache.fetched))
+                try:
+                    origins[source] = "cache " + time.strftime("%Y-%m-%d", time.gmtime(cache.fetched))
+                except (OverflowError, OSError, ValueError):
+                    origins[source] = "cache"
             elif source in embedded:
                 cats.append(Catalogue(source, embedded[source], self.snapshot_exact.get(source)))
                 origins[source] = "snapshot " + generated
@@ -234,6 +257,8 @@ class PriceFeed:
             last = failed.get(source)
             if not force and last is not None and 0 <= now - last < self.retry_after_failure:
                 report.skipped.append(source)
+                left = last + self.retry_after_failure - now
+                report.retry_in = left if report.retry_in is None else min(report.retry_in, left)
                 continue
             try:
                 answer = self.fetcher(source, cache.etag if cache and cache.schema >= SCHEMA else None)

@@ -68,6 +68,11 @@ struct FileSource {
     var blocker: ((String) -> String?)?
     /// Runs after the source's files, with how many of them changed this pass.
     var refresh: ((_ filesRead: Int) throws -> Void)?
+    /// For a source whose files are databases that come as a pair (the `.db` and its `-wal`): the database a listed
+    /// file belongs to. Such a database is read whole when its stamp (inode, size and mtime in nanoseconds, each file of
+    /// the pair on its own) is not the one the last read saved, like opencode's: an mtime that went back (the clock set
+    /// back, a backup put back) is a change too, which the `>=` rule of the plain files would not see.
+    var database: ((String) -> String)?
 }
 
 /// Finds and reads every harness log under one home directory into the store.
@@ -117,7 +122,7 @@ public final class UsageScanner {
         result.issues += catalog.issues
         readThisPass = []
         pairStamps = [:]
-        do { try store.repairZeroDates() } catch { result.issues.append(SourceIssue(source: "index", message: "tarih onarımı: \(error)")) }
+        do { try store.repairZeroDates() } catch { result.issues.append(SourceIssue(source: "index", message: L10n.t("tarih onarımı: \(error)", "date repair: \(error)"))) }
 
         for descriptor in catalog.descriptors where descriptor.family != .opencodeSQLite && !descriptor.family.readsOwnDatabases && descriptor.family != .notCountable {
             scan(fileSource(descriptor, roots: catalog.rootPaths(of: descriptor)), &result)
@@ -157,7 +162,7 @@ public final class UsageScanner {
         }
         var blocked: [String: Int] = [:]
         guard let records = try? store.fileRecords() else {
-            result.issues.append(SourceIssue(source: source.name, message: "dosya kayıtları okunamadı"))
+            result.issues.append(SourceIssue(source: source.name, message: L10n.t("dosya kayıtları okunamadı", "the file records could not be read")))
             result.sources.append(progress)
             return
         }
@@ -172,9 +177,16 @@ public final class UsageScanner {
             let mtime = Self.modified(st)
             let old = records[path]
             let sameFile = old?.inode == inode
-            if sameFile, let old, old.mtime >= mtime, old.size == size, old.offset >= size { continue }
+            if let database = source.database {
+                // The pair is read once per pass; whether it changed is its stamp's word (the reader saves the stamp
+                // it took before reading, so a write that came in while it read shows next pass).
+                let db = database(path)
+                if readThisPass.contains(db) { continue }
+                let key = "dbstamp:" + db
+                if (pendingMeta[key] ?? store.meta(key)) == pairStamp(db) { continue }
+            } else if sameFile, let old, old.mtime >= mtime, old.size == size, old.offset >= size { continue }
             // A shrink, a new inode or a same-size rewrite starts over.
-            let offset = source.appendOnly && sameFile && size > (old?.offset ?? 0) ? old?.offset ?? 0 : 0
+            let offset = source.appendOnly && sameFile && size > (old?.offset ?? 0) && source.database == nil ? old?.offset ?? 0 : 0
             let file = FileToRead(path: path, offset: offset, limit: size, settled: abs(now - mtime) > Self.settleSeconds)
             do {
                 // Decoded lines are autoreleased: drain them file by file, or a first full
@@ -195,7 +207,7 @@ public final class UsageScanner {
             if pending.count >= Self.batchFiles || pendingEvents >= Self.batchEvents { flush() }
         }
         flush()
-        for (why, count) in blocked.sorted(by: { $0.key < $1.key }) { problems.append("\(why) (\(count) dosya atlandı)") }
+        for (why, count) in blocked.sorted(by: { $0.key < $1.key }) { problems.append("\(why) " + L10n.t("(\(count) dosya atlandı)", "(\(count) files skipped)")) }
         if let refresh = source.refresh {
             do { try refresh(progress.filesRead) } catch { problems.append(String(describing: error)) }
         }

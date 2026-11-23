@@ -9,7 +9,7 @@ import Foundation
 /// against Factory's own code.
 enum DroidParser {
     static func event(data: Data, session: String, file: String, fallbackTime: Double) -> UsageEvent? {
-        guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let settings = (J.parse(data)) as? [String: Any],
               let usage = J.dict(settings["tokenUsage"]) else { return nil }
         let thinking = max(0, J.int(usage["thinkingTokens"]))
         let tokens = TokenCounts(input: max(0, J.int(usage["inputTokens"])),
