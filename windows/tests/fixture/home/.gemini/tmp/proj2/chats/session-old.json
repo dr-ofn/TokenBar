@@ -1,0 +1,1 @@
+{"sessionId":"gem-old","projectHash":"hash2","startTime":"2026-11-06T10:05:00.000Z","lastUpdated":"2026-11-06T10:05:00.000Z","messages":[{"id":"o1","timestamp":"2026-11-06T10:05:00.000Z","type":"gemini","model":"gemini-3.8-flash","tokens":{"input":50,"output":5,"cached":0,"thoughts":5,"tool":0,"total":60}}]}

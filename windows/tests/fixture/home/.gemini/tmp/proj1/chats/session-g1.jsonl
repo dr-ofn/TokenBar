@@ -1,0 +1,8 @@
+{"sessionId":"gem-s","projectHash":"hash1","startTime":"2026-11-06T10:00:00.000Z","lastUpdated":"2026-11-06T10:00:00.000Z","kind":"main"}
+{"id":"u1","timestamp":"2026-11-06T10:00:00.500Z","type":"user","content":[{"text":"hi"}]}
+{"id":"m1","timestamp":"2026-11-06T10:00:01.000Z","type":"gemini","content":"a","model":"gemini-3.8-flash"}
+{"id":"m1","timestamp":"2026-11-06T10:00:01.000Z","type":"gemini","content":"a","model":"gemini-3.8-flash","tokens":{"input":1000,"output":50,"cached":600,"thoughts":20,"tool":10,"total":1080}}
+{"id":"m2","timestamp":"2026-11-06T10:00:02.000Z","type":"gemini","content":"b","model":"gemini-3.8-flash","tokens":{"input":200,"output":30,"cached":0,"thoughts":0,"tool":0,"total":230}}
+{"$patch":{"id":"m1","tokens":{"input":99999}}}
+{"$rewindTo":"m2"}
+{"id":"m1","timestamp":"2026-11-06T10:00:01.000Z","type":"gemini","content":"a","model":"gemini-3.8-flash","tokens":{"input":1000,"output":50,"cached":600,"thoughts":20,"tool":10,"total":1080}}

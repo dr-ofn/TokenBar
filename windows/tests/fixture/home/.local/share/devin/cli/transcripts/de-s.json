@@ -1,0 +1,1 @@
+{"session_id":"de-s","agent":{"model_name":"swe-1-6-slow"},"steps":[{"step_id":1,"timestamp":"2026-11-06T10:00:00Z","metrics":{"prompt_tokens":15,"cached_tokens":5,"completion_tokens":4}}]}

@@ -1,0 +1,365 @@
+{
+ "_": "Model name -> price source, the override layer: it wins over every catalogue. Keys are a model name as ModelNames folds it (lowercase, provider path gone; '.' and '_' read as '-'). or = OpenRouter slug; near = OpenRouter slug of the closest paid model, with a note saying why; other = published price elsewhere (url + quote + optional note). Nothing is free: a model offered only for free takes its nearest paid model, and update-prices.py refuses a zero price. A slug OpenRouter has delisted keeps the last price in prices.json. A user's own model name (private route, local server, quantised copy) belongs in ~/.config/tokenbar/model-aliases.json, not here.",
+ "claude-opus-5-5": {
+  "name": "Claude Opus 5.5",
+  "or": "anthropic/claude-opus-5.5"
+ },
+ "claude-sonnet-5-5": {
+  "name": "Claude Sonnet 5.5",
+  "or": "anthropic/claude-sonnet-5.5"
+ },
+ "claude-haiku-5-5": {
+  "name": "Claude Haiku 5.5",
+  "or": "anthropic/claude-haiku-5.5"
+ },
+ "claude-fable-5-1": {
+  "name": "Claude Fable 5.1",
+  "or": "anthropic/claude-fable-5.1"
+ },
+ "claude-fable-5-2": {
+  "name": "Claude Fable 5.2",
+  "or": "anthropic/claude-fable-5.2"
+ },
+ "claude-opus-4-6-thinking": {
+  "name": "Claude Opus 4.6",
+  "or": "anthropic/claude-opus-4.6"
+ },
+ "gpt-6-luna": {
+  "name": "GPT-6 Luna",
+  "or": "openai/gpt-6-luna"
+ },
+ "gpt-6-astra": {
+  "name": "GPT-6 Astra",
+  "or": "openai/gpt-6-astra"
+ },
+ "gpt-6.1-sol": {
+  "name": "GPT-6.1 Sol",
+  "or": "openai/gpt-6.1-sol"
+ },
+ "gpt-6.1-terra": {
+  "name": "GPT-6.1 Terra",
+  "or": "openai/gpt-6.1-terra"
+ },
+ "gpt-5.6-luna": {
+  "name": "GPT-5.6 Luna",
+  "or": "openai/gpt-5.6-luna"
+ },
+ "deepseek-v4.1-flash": {
+  "name": "DeepSeek V4.1 Flash",
+  "or": "deepseek/deepseek-v4.1-flash"
+ },
+ "deepseek-v4-flash-0731": {
+  "name": "DeepSeek V4 Flash (0731)",
+  "or": "deepseek/deepseek-v4-flash-0731"
+ },
+ "muse-spark-1.3-contributor": {
+  "name": "Muse Spark 1.3 Contributor",
+  "or": "meta/muse-spark-1.3-contributor"
+ },
+ "crouton-alpha": {
+  "name": "Crouton Alpha",
+  "near": "deepseek/deepseek-v4.1-flash",
+  "note": "gizli model, kimliği açıklanmadı ve yalnız ücretsiz sunuldu; vekil fiyat: aynı işlerde kullanılan DeepSeek V4.1 Flash"
+ },
+ "free": {
+  "name": "OpenRouter Free",
+  "near": "deepseek/deepseek-v4.1-flash",
+  "note": "ücretsiz yönlendirici, yanıtlayan model kayıtlı değil; vekil fiyat: aynı işlerde kullanılan DeepSeek V4.1 Flash"
+ },
+ "qwen3.8-flash-next": {
+  "name": "Qwen3.8 Flash-Next",
+  "near": "qwen/qwen3.8-flash",
+  "note": "OpenRouter Flash-Next'i ayrı listelemiyor; en yakını Qwen3.8 Flash. Aynı fiyat: https://www.orcarouter.ai/blog/qwen-3-8-flash-release \"$0.15 per million input tokens\""
+ },
+ "qwen3.8-27b": {
+  "name": "Qwen3.8-27B",
+  "or": "qwen/qwen3.8-27b"
+ },
+ "mimo-v2.6-distill-qwen-9b": {
+  "name": "MiMo-V2.6-Distill-Qwen-9B",
+  "near": "qwen/qwen3.5-9b",
+  "note": "Qwen3.5-9B'nin ince ayarı, OpenRouter'da yok; en yakını tabanı Qwen3.5-9B"
+ },
+ "gpt-oss-120b-medium": {
+  "name": "GPT-OSS 120B (Medium)",
+  "near": "openai/gpt-oss-120b",
+  "note": "Antigravity'nin model adı; OpenRouter'da ayrı değil"
+ },
+ "hy4-preview": {
+  "name": "Hy4 preview",
+  "or": "tencent/hy4-preview"
+ },
+ "longcat-2.5": {
+  "name": "LongCat 2.5",
+  "near": "meituan/longcat-2.0",
+  "note": "OpenRouter LongCat 2.5'i listelemiyor; en yakını LongCat 2.0"
+ },
+ "nemotron-3-nano-omni-30b-a3b-reasoning": {
+  "name": "Nemotron 3 Nano Omni 30B",
+  "near": "nvidia/nemotron-3-nano-30b-a3b",
+  "note": "yalnız ücretsiz listeleniyor; en yakını ücretli Nemotron 3 Nano 30B A3B"
+ },
+ "glm-5.3-flash": {
+  "name": "GLM-5.3 Flash",
+  "or": "z-ai/glm-5.3-flash"
+ },
+ "glm-5.3": {
+  "name": "GLM-5.3",
+  "or": "z-ai/glm-5.3"
+ },
+ "glm-5.2": {
+  "name": "GLM-5.2",
+  "or": "z-ai/glm-5.2"
+ },
+ "glm-5v-turbo": {
+  "name": "GLM-5V Turbo",
+  "or": "z-ai/glm-5v-turbo"
+ },
+ "glm-4.7-flash": {
+  "name": "GLM-4.7 Flash",
+  "or": "z-ai/glm-4.7-flash"
+ },
+ "glm-4.7-flashx": {
+  "name": "GLM-4.7 FlashX",
+  "other": {
+   "input": 0.07,
+   "output": 0.4,
+   "cacheRead": 0.01
+  },
+  "url": "https://docs.z.ai/guides/overview/pricing",
+  "quote": "GLM-4.7-FlashX | $0.07 | $0.01 | Limited-time Free | $0.4"
+ },
+ "glm-4.5-flash": {
+  "name": "GLM-4.5 Flash",
+  "near": "z-ai/glm-4.5-air",
+  "note": "Z.ai'de ücretsiz; en yakını GLM-4.5 ailesinin en ucuz ücretlisi GLM 4.5 Air"
+ },
+ "glm-4.6v-flash": {
+  "name": "GLM-4.6V Flash",
+  "near": "z-ai/glm-4.6v",
+  "note": "Z.ai'de ücretsiz; en yakını ücretli GLM 4.6V"
+ },
+ "gemini-3.8-flash": {
+  "name": "Gemini 3.8 Flash",
+  "or": "google/gemini-3.8-flash"
+ },
+ "gemini-3.8-flash-n": {
+  "name": "Gemini 3.8 Flash (Medium)",
+  "near": "google/gemini-3.8-flash",
+  "note": "Antigravity'nin model adı; OpenRouter'da ayrı değil"
+ },
+ "gemini-3.7-flash": {
+  "name": "Gemini 3.7 Flash",
+  "or": "google/gemini-3.7-flash"
+ },
+ "gemini-3.6-flash": {
+  "name": "Gemini 3.6 Flash",
+  "or": "google/gemini-3.6-flash"
+ },
+ "gemini-3.1-pro-low": {
+  "name": "Gemini 3.1 Pro (Low)",
+  "near": "google/gemini-3.1-pro-preview",
+  "note": "Antigravity'nin model adı; en yakını Gemini 3.1 Pro Preview"
+ },
+ "gemma-4-26b-a4b": {
+  "name": "Gemma 4 26B-A4B",
+  "or": "google/gemma-4-26b-a4b-it"
+ },
+ "heretic-gemma-4-26b-a4b": {
+  "name": "Heretic Gemma 4 26B-A4B",
+  "near": "google/gemma-4-26b-a4b-it",
+  "note": "türev model; en yakını Gemma 4 26B-A4B"
+ },
+ "gemma-4-e4b": {
+  "name": "Gemma 4 E4B",
+  "other": {
+   "input": 0.2,
+   "output": 0.2,
+   "cacheRead": 0.1
+  },
+  "url": "https://pricepertoken.com/pricing-page/model/google-gemma-4-e4b-it",
+  "quote": "Pricing starts at $0.200 per million input tokens (Fireworks; Last updated: November 6, 2026)"
+ },
+ "gemma-4-e2b": {
+  "name": "Gemma 4 E2B",
+  "other": {
+   "input": 0.04,
+   "output": 0.08
+  },
+  "url": "https://pricepertoken.com/pricing-page/model/google-gemma-4-e2b-it",
+  "quote": "Pricing starts at $0.040 per million input tokens and $0.080 per million output tokens (Amazon Bedrock; November 11, 2026)"
+ },
+ "gemma-4-12b": {
+  "name": "Gemma 4 12B",
+  "other": {
+   "input": 0.18,
+   "output": 0.5,
+   "cacheRead": 0.036
+  },
+  "url": "https://computeprices.com/providers/digitalocean/models/gemma-4-12b",
+  "quote": "DigitalOcean: Standard $0.180 /1M $0.500 /1M $0.036 /1M November 6, 2026"
+ },
+ "inkling": {
+  "name": "Inkling",
+  "or": "thinkingmachines/inkling"
+ },
+ "inkling-small": {
+  "name": "Inkling Small",
+  "or": "thinkingmachines/inkling-small"
+ },
+ "nemotron-3.5-super-vl": {
+  "name": "Nemotron 3.5 Super VL",
+  "or": "nvidia/nemotron-3.5-super-vl"
+ },
+ "nemotron-3.5-lightning": {
+  "name": "Nemotron 3.5 Lightning",
+  "or": "nvidia/nemotron-3.5-lightning"
+ },
+ "nemotron-3-ultra-550b-a55b": {
+  "name": "Nemotron 3 Ultra",
+  "or": "nvidia/nemotron-3-ultra-550b-a55b"
+ },
+ "nemotron-3-ultra": {
+  "name": "Nemotron 3 Ultra",
+  "or": "nvidia/nemotron-3-ultra-550b-a55b"
+ },
+ "north-mini-code": {
+  "name": "North Mini Code",
+  "near": "cohere/command-r7b-12-2024",
+  "note": "yalnız ücretsiz listeleniyor; en yakını Cohere'in listedeki en küçük modeli Command R7B"
+ },
+ "flint-v1.0": {
+  "name": "Flint v1.0",
+  "near": "google/gemma-4-31b-it",
+  "note": "yalnız ücretsiz listeleniyor (Recursive, 40B); en yakın boyuttaki açık model Gemma 4 31B"
+ },
+ "xing4.0-29b-a4b": {
+  "name": "Xing4.0-29B-A4B",
+  "near": "google/gemma-4-26b-a4b-it",
+  "note": "yalnız ücretsiz listelendi; en yakını aynı sınıftaki Gemma 4 26B-A4B"
+ },
+ "step-5-preview": {
+  "name": "Step 5 Preview",
+  "or": "stepfun/step-5-preview"
+ },
+ "mimo-v2.6-flash": {
+  "name": "MiMo-V2.6 Flash",
+  "or": "xiaomi/mimo-v2.6-flash"
+ },
+ "minimax-m2.7": {
+  "name": "MiniMax M2.7",
+  "or": "minimax/minimax-m2.7"
+ },
+ "ling-3.1-flash": {
+  "name": "Ling-3.1 Flash",
+  "or": "inclusionai/ling-3.1-flash"
+ },
+ "ling-3.0-tiny": {
+  "name": "Ling-3.0 Tiny",
+  "or": "inclusionai/ling-3.0-tiny"
+ },
+ "ternary-bonsai-2-27b": {
+  "name": "Ternary Bonsai 2 27B",
+  "or": "prism-ml/ternary-bonsai-2-27b"
+ },
+ "lfm2.5-24b-a2b": {
+  "name": "LFM2.5-24B-A2B",
+  "or": "liquid/lfm-2.5-24b-a2b"
+ },
+ "ornith-1.5-35b-a3b": {
+  "name": "Ornith 1.5 35B-A3B",
+  "other": {
+   "input": 0.1,
+   "output": 0.4,
+   "cacheRead": 0.01
+  },
+  "url": "https://www.llmreference.com/model/ornith-1.5-35b-a3b/runinfra",
+  "quote": "RunInfra: Input / 1M $0.10 Output / 1M $0.40 Cache read $0.010"
+ },
+ "big-pickle": {
+  "name": "Big Pickle",
+  "near": "z-ai/glm-4.6",
+  "note": "opencode Zen gizli modeli; yaygın kanı GLM-4.6 tabanlı olduğu, doğrulanmadı"
+ },
+ "beam": {
+  "name": "Beam",
+  "near": "reflection/beam-1.0-501b-a23b",
+  "note": "opencode Zen'in Beam Free'si; OpenRouter'daki ücretli karşılığı Reflection Beam 1.0"
+ },
+ "pulse-alpha": {
+  "name": "Pulse Alpha",
+  "near": "deepseek/deepseek-v4.1-flash",
+  "note": "opencode Zen gizli modeli, kimliği açıklanmadı; vekil fiyat: aynı işlerde kullanılan DeepSeek V4.1 Flash"
+ },
+ "longcat-2.5-preview": {
+  "name": "LongCat 2.5 Preview",
+  "near": "meituan/longcat-2.0",
+  "note": "OpenRouter LongCat 2.5'i listelemiyor; en yakını LongCat 2.0"
+ },
+ "space-bunny": {
+  "name": "Space Bunny",
+  "near": "minimax/minimax-m3.1-flash",
+  "note": "gizli model; MiniMax M3.1 Flash olduğu bildirildi, opencode Zen de onu ücretsiz listeliyor"
+ },
+ "cat-jam": {
+  "name": "Cat Jam",
+  "near": "deepseek/deepseek-v4.1-flash",
+  "note": "opencode Zen gizli modeli, kimliği açıklanmadı; vekil fiyat: aynı işlerde kullanılan DeepSeek V4.1 Flash"
+ },
+ "swe-1-6-slow": {
+  "name": "SWE-1.6 (Slow)",
+  "other": {
+   "input": 0.5,
+   "output": 2.5,
+   "cacheRead": 0.2
+  },
+  "url": "https://cloudprice.net/models/cognition-swe-1-6",
+  "quote": "Cognition cognition/swe-1.6 $0.5 $2.50 $0.2",
+  "note": "Devin fiyat yayımlamıyor; fiyat izleme sayfasının SWE 1.6 satırı"
+ },
+ "minicpm-v-4.7-35b-a3b": {
+  "name": "MiniCPM-V 4.7 35B-A3B",
+  "near": "qwen/qwen3-vl-30b-a3b-instruct",
+  "note": "OpenRouter'da yok; en yakını aynı sınıftaki görsel model Qwen3 VL 30B A3B"
+ },
+ "minicpm-v-4.7-1b": {
+  "name": "MiniCPM-V 4.7 1B",
+  "near": "google/gemma-3-4b-it",
+  "note": "OpenRouter'da yok; en yakını listedeki en küçük görsel model Gemma 3 4B"
+ },
+ "ornith-1.5-9b": {
+  "name": "Ornith 1.5 9B",
+  "other": {
+   "input": 0.431,
+   "output": 1.12,
+   "cacheRead": 0.0862
+  },
+  "url": "https://featherless.ai/models/ornith-ai/Ornith-1.5-9B",
+  "quote": "Pricing: Input $0.431 / Cached $0.0862 / Output $1.12"
+ },
+ "nemotron-3.5-bolt-e4b": {
+  "name": "Nemotron 3.5 Bolt E4B",
+  "near": "nvidia/nemotron-3.5-lightning",
+  "note": "OpenRouter'da yok (LiteLLM'de nvidia_nim satırı fiyatsız); en yakını aynı ailenin en küçük ücretli modeli Nemotron 3.5 Lightning"
+ },
+ "nemotron-3.5-super-vl-120b-a12b": {
+  "name": "Nemotron 3.5 Super VL",
+  "or": "nvidia/nemotron-3.5-super-vl",
+  "note": "aynı model, boyut adıyla (120B A12B); sağlayıcılar böyle de yazıyor"
+ },
+ "flint-40b": {
+  "name": "Flint 40B",
+  "near": "google/gemma-4-31b-it",
+  "note": "yalnız ücretsiz listeleniyor (opencode, Recursive Flint v1.0 ile aynı 40B model); en yakın boyuttaki açık model Gemma 4 31B"
+ },
+ "gemini-4-argon-trial": {
+  "name": "Gemini 4 Argon",
+  "or": "google/gemini-4-argon",
+  "note": "-trial deneme planı işaretidir; API eşdeğeri liste fiyatıdır"
+ },
+ "ernie-5.5-flash-preview": {
+  "name": "ERNIE-5.5-Flash-Preview",
+  "near": "baidu/ernie-light-dt-1.0-intl",
+  "note": "OpenRouter, models.dev ve Kilo yalnız ücretsiz sürümü listeliyor; aynı yapımcının OpenRouter'daki tek ücretli modeli ERNIE-Light-DT-1.0"
+ }
+}

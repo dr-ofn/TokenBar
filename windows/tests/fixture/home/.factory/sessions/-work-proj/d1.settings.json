@@ -1,0 +1,1 @@
+{"model":"custom:Claude-Haiku-5-5[Proxy]","providerLock":"anthropic","providerLockTimestamp":"2026-11-06T10:02:00.000Z","tokenUsage":{"inputTokens":100,"outputTokens":40,"cacheCreationTokens":10,"cacheReadTokens":50,"thinkingTokens":6}}

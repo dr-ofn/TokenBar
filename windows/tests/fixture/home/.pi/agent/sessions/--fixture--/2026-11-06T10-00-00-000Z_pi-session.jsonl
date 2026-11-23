@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"pi-session","timestamp":"2026-11-06T10:00:00.000Z","cwd":"/fixture"}
+{"type":"message","id":"e1","timestamp":"2026-11-06T10:00:01.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-haiku-5-5","usage":{"input":100,"output":40,"cacheRead":20,"cacheWrite":10,"cacheWrite1h":4,"reasoning":15,"totalTokens":170,"cost":{"input":0.1,"output":0.2,"cacheRead":0,"cacheWrite":0,"total":0.3}},"responseId":"pi-r1","timestamp":1793968801000}}
+{"type":"message","id":"e3","timestamp":"2026-11-06T10:00:03.000Z","message":{"role":"assistant","provider":"openai","model":"gpt-6-luna","usage":{"input":7,"output":3,"cacheRead":0,"cacheWrite":0,"totalTokens":10},"timestamp":1793968803000}}
+{"type":"message","id":"e4","timestamp":"2026-11-06T10:00:04.000Z","message":{"role":"toolResult","details":{"usage":{"input":900,"output":900}}}}

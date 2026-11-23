@@ -1,0 +1,27 @@
+[project]
+name = "tokenbar"
+version = "9.0.0"
+description = "TokenBar for Windows: counts the tokens and dollars your AI coding tools used, from their own local logs (read-only)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "pystray>=0.19.5",
+    "Pillow>=10.0",
+    "zstandard>=0.22",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pyinstaller>=6.6", "pyyaml"]
+
+[project.scripts]
+tokenbar = "tokenbar.cli:main"
+
+[tool.setuptools]
+packages = ["tokenbar", "tokenbar.readers", "tokenbar.prices", "tokenbar.gui"]
+
+[tool.setuptools.package-data]
+tokenbar = ["data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

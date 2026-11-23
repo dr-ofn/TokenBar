@@ -1,0 +1,46 @@
+name: New tool (harness)
+description: Ask TokenBar to count another AI coding tool
+labels: ["new-harness"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        See [docs/HARNESSES.md](https://github.com/dr-ofn/TokenBar/blob/main/docs/HARNESSES.md) for what is already planned. Do not paste real logs: describe the format with invented values.
+  - type: input
+    id: tool
+    attributes:
+      label: Tool name and version
+    validations:
+      required: true
+  - type: textarea
+    id: location
+    attributes:
+      label: Where does it store data on macOS
+      description: Paths (home-relative), file format (JSONL, SQLite, JSON, ...), and any environment variable that moves the directory.
+    validations:
+      required: true
+  - type: textarea
+    id: tokens
+    attributes:
+      label: Token fields
+      description: Which fields hold input, output, cache read, cache write and reasoning tokens, the model name, and the timestamp. Are counters per call or cumulative per session? Is anything overwritten in place?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: A link to the tool's source or docs, or a sample with invented values in the real schema.
+  - type: checkboxes
+    id: local
+    attributes:
+      label: Is the token data really local
+      options:
+        - label: Token counts are written to a file on this Mac (if they only live on the vendor's servers, TokenBar cannot count them)
+          required: true
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contribution
+      options:
+        - label: I can send a pull request following CONTRIBUTING.md

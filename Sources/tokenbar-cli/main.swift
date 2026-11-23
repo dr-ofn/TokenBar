@@ -1,0 +1,95 @@
+import Foundation
+import LocalCore
+
+// tokenbar-cli: index every harness log on this Mac and print a report.
+//
+//   tokenbar-cli [--window 1h|5h|24h|7d|30d|all] [--db PATH] [--home DIR] [--rebuild] [--no-scan] [--json]
+//   tokenbar-cli --index     show index info (file count, event count, last scan)
+
+var windowArg = "24h"
+var dbPath = UsageStore.defaultPath
+var home = NSHomeDirectory()
+var rebuild = false
+var scan = true
+var jsonOut = false
+var indexOnly = false
+
+var args = CommandLine.arguments.dropFirst().makeIterator()
+while let a = args.next() {
+    switch a {
+    case "--window", "-w": windowArg = args.next() ?? windowArg
+    case "--db": dbPath = args.next() ?? dbPath
+    case "--home": home = args.next() ?? home
+    case "--rebuild": rebuild = true
+    case "--no-scan": scan = false
+    case "--json": jsonOut = true
+    case "--index": indexOnly = true
+    case "-h", "--help":
+        print("usage: tokenbar-cli [--window 1h|5h|24h|7d|30d|all] [--db PATH] [--home DIR] [--rebuild] [--no-scan] [--json] | --index")
+        exit(0)
+    default:
+        print("bilinmeyen arg: \(a)")
+        exit(1)
+    }
+}
+
+guard let window = Period(rawValue: windowArg) else {
+    print("geçersiz pencere: \(windowArg)")
+    exit(1)
+}
+
+// --rebuild drops every row; refuse it for the live index, where the loss is permanent.
+func canonical(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path }
+if rebuild, canonical(dbPath) == canonical(UsageStore.defaultPath) {
+    FileHandle.standardError.write(Data("tokenbar-cli: --rebuild reddedildi: veritabanı varsayılan konumda (\(dbPath))\n".utf8))
+    exit(2)
+}
+
+do {
+    let store = try UsageStore(path: dbPath)
+    if indexOnly {
+        let stats = try store.storageStats()
+        let last = store.meta("lastScan").flatMap(Double.init).map { Date(timeIntervalSince1970: $0).formatted() } ?? "-"
+        print("kayıt: \(try store.eventCount()) · dosya: \((try store.fileRecords()).count) · son tarama: \(last)")
+        print("tablo: \(stats.pages) sayfa (\(stats.pages * 4096 / 1024 / 1024) MB), boş \(stats.free) sayfa")
+        exit(0)
+    }
+    if rebuild { try store.reset() }
+    // This home's own price names too (its model-aliases.json), not the Mac user's.
+    PriceBook.useHome(home)
+    // Names and colours of the tools in this home's custom-sources.json, scan or not.
+    HarnessCatalog.load(home: home).register()
+
+    var detected: [HarnessID] = []
+    if scan {
+        let result = UsageScanner(store: store, home: home).scan()
+        detected = result.detected
+        for issue in result.issues {
+            FileHandle.standardError.write(Data((L10n.t("kaynak hatası", "source error") + " · \(issue.source): \(IssueText.localized(issue.message))\n").utf8))
+        }
+        if !jsonOut {
+            let parts = result.sources.filter { $0.filesRead > 0 }.map { "\($0.name) \($0.filesRead) " + L10n.t("dosya", "files") + ", \($0.events) " + L10n.t("kayıt", "records") }
+            print(L10n.t("tarama: \(result.bytesRead) bayt · ", "scan: \(result.bytesRead) bytes · ") + parts.joined(separator: " · "))
+            print(L10n.t("algılanan araçlar: ", "detected tools: ") + (detected.isEmpty ? "-" : detected.map(\.name).joined(separator: ", ")))
+        }
+    }
+
+    let report = try store.usageBook().report(for: window)
+
+    if jsonOut {
+        let data = try ReportJSON.serialize(ReportJSON.object(report, window: window, detected: detected))
+        print(String(decoding: data, as: UTF8.self))
+    } else {
+        print("\(window.label): \(UsageText.tokens(report.counts.total))\(UsageText.tokenWord) · \(UsageText.money(report.cost))\(UsageText.moneyWord) · \(UsageText.totalLine(report))")
+        for h in report.harnesses {
+            print("\(h.harness.name): \(UsageText.tokens(h.tokens)) · \(UsageText.money(h.cost)) · \(UsageText.calls(h.calls))")
+            for m in h.models {
+                print("  \(m.info.name) [\(m.info.provider)]  \(UsageText.tokens(m.tokens)) · \(UsageText.cost(m.cost, m.info.price)) · \(UsageText.calls(m.calls))")
+            }
+        }
+        if report.harnesses.isEmpty { print(L10n.t("  (bu aralıkta çağrı yok)", "  (no calls in this window)")) }
+    }
+} catch {
+    FileHandle.standardError.write(Data("tokenbar-cli: \(error)\n".utf8))
+    exit(1)
+}

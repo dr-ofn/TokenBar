@@ -1,0 +1,1 @@
+{"type":"session.shutdown","id":"sd9","timestamp":"2026-11-06T10:03:00.000Z","data":{"modelMetrics":{"gpt-6-luna":{"requests":{"count":2},"usage":{"inputTokens":500,"outputTokens":25,"cacheReadTokens":400,"cacheWriteTokens":50,"reasoningTokens":5}}}}}

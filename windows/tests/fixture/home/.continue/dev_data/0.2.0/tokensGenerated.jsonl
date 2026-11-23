@@ -1,0 +1,5 @@
+{"eventName":"tokensGenerated","generatedTokens":30,"model":"qwen3.8-flash-next","promptTokens":120,"provider":"ollama","schema":"0.2.0","timestamp":"2026-11-06T10:00:00.000Z","userId":""}
+{"eventName":"tokensGenerated","generatedTokens":30,"model":"qwen3.8-flash-next","promptTokens":120,"provider":"ollama","schema":"0.2.0","timestamp":"2026-11-06T10:00:00.000Z","userId":""}
+{"generatedTokens":5,"model":"gpt-6-luna","promptTokens":10,"provider":"openai","timestamp":"2026-11-06T10:00:05.000Z"}
+{"generatedTokens":5,"promptTokens":5}
+garbage

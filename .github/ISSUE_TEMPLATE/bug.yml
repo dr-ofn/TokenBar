@@ -1,0 +1,50 @@
+name: Bug report
+description: Something is wrong, crashes, or a number looks off
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not paste prompts, API keys or real log content. Redact paths if they contain your name.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TokenBar version
+      description: From the Releases zip name, or the `VERSION` file when built from source
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and chip
+      placeholder: "macOS 15.2, Apple M2"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it
+      options:
+        - Built from source
+        - Releases zip
+        - Homebrew
+    validations:
+      required: true
+  - type: textarea
+    id: tool
+    attributes:
+      label: Tool and model involved (if a number looks wrong)
+      description: Which AI tool and model, the period, and what you compared against. `tokenbar-cli --window all --json` output helps, with paths redacted.

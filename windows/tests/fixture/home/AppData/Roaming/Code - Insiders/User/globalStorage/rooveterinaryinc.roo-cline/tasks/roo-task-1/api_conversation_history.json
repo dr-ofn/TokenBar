@@ -1,0 +1,1 @@
+[{"content":[{"text":"<environment_details>\n<model>old-model<\/model>\n<\/environment_details>","type":"text"}],"role":"user"},{"content":[{"text":"<environment_details>\n<model>claude-sonnet-4-5<\/model>\n<\/environment_details>","type":"text"}],"role":"user"}]

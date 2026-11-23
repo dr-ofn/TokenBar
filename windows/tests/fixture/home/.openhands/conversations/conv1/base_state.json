@@ -1,0 +1,9 @@
+{"id":"conv1","execution_status":"idle","stats":{"usage_to_metrics":{
+ "agent":{"model_name":"anthropic/claude-haiku-5-5","accumulated_cost":0.1,
+   "accumulated_token_usage":{"model":"anthropic/claude-haiku-5-5","prompt_tokens":1000,"completion_tokens":200,"cache_read_tokens":400,"cache_write_tokens":100,"reasoning_tokens":50},
+   "costs":[{"model":"anthropic/claude-haiku-5-5","cost":0.1,"timestamp":1793968800.0}],
+   "token_usages":[{"model":"anthropic/claude-haiku-5-5","prompt_tokens":99999,"completion_tokens":99999,"response_id":"r1"}]},
+ "condenser":{"model_name":"gpt-6-luna","accumulated_token_usage":{"prompt_tokens":80,"completion_tokens":20},"costs":[{"cost":0.01,"timestamp":1793968900.0}]},
+ "acp":{"model_name":"claude-haiku-5-5","accumulated_token_usage":{"prompt_tokens":10,"completion_tokens":5,"cache_read_tokens":30,"cache_write_tokens":0},"costs":[{"cost":0.01,"timestamp":1793969000.0}]},
+ "listed":{"model_name":"gpt-6-luna","costs":[{"cost":0.01,"timestamp":1793969100.0}],"token_usages":[{"prompt_tokens":7,"completion_tokens":3},{"prompt_tokens":5,"completion_tokens":1}]}
+}}}

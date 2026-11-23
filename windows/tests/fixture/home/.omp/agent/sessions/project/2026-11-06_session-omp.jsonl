@@ -1,0 +1,4 @@
+{"type":"session","id":"omp-session","cwd":"/fixture"}
+{"timestamp":"2026-11-06T10:00:00Z","message":{"provider":"anthropic","model":"claude-haiku-5-5","usage":{"input":8,"cacheRead":2,"cacheWrite":1,"output":4},"responseId":"omp-r1"}}
+{"timestamp":"2026-11-06T10:00:00Z","role":"toolResult","type":"toolResult","details":{"usage":{"input":900,"output":900}}}
+{"timestamp":"2026-11-06T10:03:00Z","message":{"provider":"anthropic","model":"claude-haiku-5-5","usage":{"input":3,"output":1},"responseId":"omp-r2"}}

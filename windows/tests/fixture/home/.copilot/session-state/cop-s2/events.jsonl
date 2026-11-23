@@ -1,0 +1,2 @@
+{"type":"session.usage_record","id":"copied","timestamp":"2026-11-06T10:00:10.000Z","data":{"usage":{"model":"claude-haiku-5-5","inputTokens":1000,"outputTokens":50,"cacheReadTokens":700,"cacheWriteTokens":200,"reasoningTokens":10,"accounting":{"sourceSessionId":"cop-s1","sequence":1},"apiCallId":"api1"}}}
+{"type":"session.usage_record","id":"n1","timestamp":"2026-11-06T10:02:00.000Z","data":{"usage":{"model":"claude-haiku-5-5","inputTokens":60,"outputTokens":6,"cacheReadTokens":0,"cacheWriteTokens":0,"accounting":{"sourceSessionId":"cop-s2","sequence":1}}}}

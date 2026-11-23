@@ -1,0 +1,671 @@
+{
+  "calls" : 72,
+  "cost" : 0.014199424833999996,
+  "detected" : [
+    "claude-code",
+    "codex",
+    "oh-my-pi",
+    "qwen-code",
+    "kimi-code",
+    "devin",
+    "antigravity",
+    "opencode",
+    "crush",
+    "goose",
+    "factory-droid",
+    "amp",
+    "openhands",
+    "warp",
+    "amazon-q",
+    "gemini-cli",
+    "pi",
+    "copilot-cli",
+    "junie",
+    "codebuff",
+    "mistral-vibe",
+    "augment",
+    "cline",
+    "roo-code",
+    "kilo-code",
+    "copilot-chat",
+    "continue",
+    "zed",
+    "kiro",
+    "cursor",
+    "windsurf",
+    "trae"
+  ],
+  "harnesses" : {
+    "amp" : {
+      "calls" : 4,
+      "cost" : 0.00044571999999999998,
+      "models" : {
+        "amp\/claude-haiku-5-5" : [
+          1249,
+          2,
+          465,
+          700,
+          50,
+          34,
+          0
+        ],
+        "amp\/gpt-6-luna" : [
+          14046,
+          2,
+          310,
+          12572,
+          986,
+          178,
+          0
+        ]
+      },
+      "total" : 15295
+    },
+    "antigravity" : {
+      "calls" : 1,
+      "cost" : 2.2440834e-05,
+      "models" : {
+        "google-antigravity\/gemini-3.8-flash" : [
+          14,
+          1,
+          7,
+          1,
+          2,
+          4,
+          1
+        ]
+      },
+      "total" : 14
+    },
+    "augment" : {
+      "calls" : 2,
+      "cost" : 0.0013078,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          10,
+          1,
+          8,
+          0,
+          0,
+          2,
+          0
+        ],
+        "anthropic\/claude-opus-5-5" : [
+          190,
+          1,
+          100,
+          30,
+          20,
+          40,
+          0
+        ]
+      },
+      "total" : 200
+    },
+    "claude-code" : {
+      "calls" : 2,
+      "cost" : 0.0013293999999999997,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          6,
+          1,
+          4,
+          0,
+          0,
+          2,
+          0
+        ],
+        "anthropic\/claude-opus-5-5" : [
+          190,
+          1,
+          120,
+          10,
+          25,
+          35,
+          0
+        ]
+      },
+      "total" : 196
+    },
+    "cline" : {
+      "calls" : 5,
+      "cost" : 0.0046424999999999999,
+      "models" : {
+        "anthropic\/claude-sonnet-4-5" : [
+          1775,
+          5,
+          957,
+          630,
+          110,
+          78,
+          0
+        ]
+      },
+      "total" : 1775
+    },
+    "codebuff" : {
+      "calls" : 4,
+      "cost" : 4.4150000000000003e-05,
+      "models" : {
+        "codebuff\/claude-haiku-5-5" : [
+          180,
+          1,
+          100,
+          40,
+          10,
+          30,
+          0
+        ],
+        "codebuff\/codebuff-unknown" : [
+          10,
+          1,
+          7,
+          0,
+          0,
+          3,
+          0
+        ],
+        "codebuff\/gpt-6-luna" : [
+          226,
+          2,
+          55,
+          150,
+          0,
+          21,
+          0
+        ]
+      },
+      "total" : 416
+    },
+    "codex" : {
+      "calls" : 5,
+      "cost" : 5.9899999999999999e-05,
+      "models" : {
+        "openai\/gpt-6-luna" : [
+          331,
+          5,
+          264,
+          0,
+          0,
+          67,
+          0
+        ]
+      },
+      "total" : 331
+    },
+    "continue" : {
+      "calls" : 2,
+      "cost" : 3.5599999999999998e-05,
+      "models" : {
+        "ollama\/qwen3.8-flash-next" : [
+          150,
+          1,
+          120,
+          0,
+          0,
+          30,
+          0
+        ],
+        "openai\/gpt-6-luna" : [
+          15,
+          1,
+          10,
+          0,
+          0,
+          5,
+          0
+        ]
+      },
+      "total" : 165
+    },
+    "copilot-chat" : {
+      "calls" : 4,
+      "cost" : 0.00016450000000000001,
+      "models" : {
+        "github-copilot\/auto-resolved" : [
+          525,
+          1,
+          500,
+          0,
+          0,
+          25,
+          0
+        ],
+        "github-copilot\/gpt-6-luna" : [
+          33,
+          1,
+          30,
+          0,
+          0,
+          3,
+          0
+        ],
+        "github-copilot\/gpt-6-luna-2026" : [
+          1280,
+          1,
+          1200,
+          0,
+          0,
+          80,
+          0
+        ],
+        "github-copilot\/m3" : [
+          77,
+          1,
+          70,
+          0,
+          0,
+          7,
+          0
+        ]
+      },
+      "total" : 1915
+    },
+    "copilot-cli" : {
+      "calls" : 4,
+      "cost" : 0.00014375,
+      "models" : {
+        "github-copilot\/claude-haiku-5-5" : [
+          1116,
+          2,
+          160,
+          700,
+          200,
+          56,
+          10
+        ],
+        "github-copilot\/gpt-6-luna" : [
+          845,
+          2,
+          350,
+          400,
+          50,
+          45,
+          5
+        ]
+      },
+      "total" : 1961
+    },
+    "crush" : {
+      "calls" : 2,
+      "cost" : 0.00035499999999999996,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          1800,
+          1,
+          1500,
+          0,
+          0,
+          300,
+          0
+        ],
+        "openai\/gpt-6-luna" : [
+          350,
+          1,
+          300,
+          0,
+          0,
+          50,
+          0
+        ]
+      },
+      "total" : 2150
+    },
+    "devin" : {
+      "calls" : 3,
+      "cost" : 0.00013100000000000001,
+      "models" : {
+        "devin\/swe-1-6-slow" : [
+          199,
+          2,
+          110,
+          55,
+          10,
+          24,
+          0
+        ],
+        "devin\/unknown" : [
+          35,
+          1,
+          30,
+          0,
+          0,
+          5,
+          0
+        ]
+      },
+      "total" : 234
+    },
+    "factory-droid" : {
+      "calls" : 2,
+      "cost" : 3.9250000000000005e-05,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          206,
+          1,
+          100,
+          50,
+          10,
+          46,
+          6
+        ],
+        "openai\/gpt-6-luna" : [
+          25,
+          1,
+          20,
+          0,
+          0,
+          5,
+          0
+        ]
+      },
+      "total" : 231
+    },
+    "gemini-cli" : {
+      "calls" : 3,
+      "cost" : 0.0010477500000000001,
+      "models" : {
+        "google\/gemini-3.8-flash" : [
+          1370,
+          3,
+          660,
+          600,
+          0,
+          110,
+          25
+        ]
+      },
+      "total" : 1370
+    },
+    "goose" : {
+      "calls" : 2,
+      "cost" : 0.00012450000000000002,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          50,
+          1,
+          40,
+          0,
+          0,
+          10,
+          0
+        ],
+        "openai\/gpt-6-luna" : [
+          1000,
+          1,
+          500,
+          300,
+          100,
+          100,
+          0
+        ]
+      },
+      "total" : 1050
+    },
+    "junie" : {
+      "calls" : 2,
+      "cost" : 2.675e-05,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          180,
+          1,
+          100,
+          50,
+          10,
+          20,
+          5
+        ],
+        "junie\/gpt-6-luna" : [
+          34,
+          1,
+          30,
+          0,
+          0,
+          4,
+          0
+        ]
+      },
+      "total" : 214
+    },
+    "kilo-code" : {
+      "calls" : 3,
+      "cost" : 0.0015504000000000002,
+      "models" : {
+        "kilo\/anthropic\/claude-sonnet-4" : [
+          58,
+          2,
+          44,
+          3,
+          2,
+          9,
+          2
+        ],
+        "kilo\/kilo-auto\/frontier" : [
+          220,
+          1,
+          150,
+          50,
+          0,
+          20,
+          0
+        ]
+      },
+      "total" : 278
+    },
+    "kimi-code" : {
+      "calls" : 1,
+      "cost" : 4.8949999999999997e-06,
+      "models" : {
+        "openrouter\/gpt-6-luna" : [
+          30,
+          1,
+          20,
+          2,
+          3,
+          5,
+          0
+        ]
+      },
+      "total" : 30
+    },
+    "mistral-vibe" : {
+      "calls" : 2,
+      "cost" : 0.0014464999999999999,
+      "models" : {
+        "mistral\/devstral-small-latest" : [
+          55,
+          1,
+          50,
+          0,
+          0,
+          5,
+          0
+        ],
+        "mistral\/mistral-medium-latest" : [
+          1100,
+          1,
+          400,
+          600,
+          0,
+          100,
+          0
+        ]
+      },
+      "total" : 1155
+    },
+    "oh-my-pi" : {
+      "calls" : 2,
+      "cost" : 3.7449999999999997e-06,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          19,
+          2,
+          11,
+          2,
+          1,
+          5,
+          0
+        ]
+      },
+      "total" : 19
+    },
+    "opencode" : {
+      "calls" : 2,
+      "cost" : 1.2279999999999999e-05,
+      "models" : {
+        "openrouter\/gpt-6-luna" : [
+          73,
+          2,
+          55,
+          3,
+          2,
+          13,
+          3
+        ]
+      },
+      "total" : 73
+    },
+    "openhands" : {
+      "calls" : 4,
+      "cost" : 0.00019150000000000002,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          1200,
+          1,
+          500,
+          400,
+          100,
+          200,
+          50
+        ],
+        "openhands\/claude-haiku-5-5" : [
+          45,
+          1,
+          10,
+          30,
+          0,
+          5,
+          0
+        ],
+        "openhands\/gpt-6-luna" : [
+          116,
+          2,
+          92,
+          0,
+          0,
+          24,
+          0
+        ]
+      },
+      "total" : 1361
+    },
+    "pi" : {
+      "calls" : 3,
+      "cost" : 3.4949999999999996e-05,
+      "models" : {
+        "anthropic\/claude-haiku-5-5" : [
+          170,
+          1,
+          100,
+          20,
+          10,
+          40,
+          15
+        ],
+        "openai\/gpt-6-luna" : [
+          16,
+          2,
+          12,
+          0,
+          0,
+          4,
+          0
+        ]
+      },
+      "total" : 186
+    },
+    "qwen-code" : {
+      "calls" : 1,
+      "cost" : 5.6239999999999999e-06,
+      "models" : {
+        "qwen\/qwen3.8-flash-next" : [
+          24,
+          1,
+          12,
+          4,
+          0,
+          8,
+          2
+        ]
+      },
+      "total" : 24
+    },
+    "roo-code" : {
+      "calls" : 4,
+      "cost" : 0,
+      "models" : {
+        "\/unknown" : [
+          1010,
+          1,
+          300,
+          600,
+          100,
+          10,
+          0
+        ],
+        "anthropic\/unknown" : [
+          2020,
+          2,
+          600,
+          1200,
+          200,
+          20,
+          0
+        ],
+        "openai\/unknown" : [
+          1010,
+          1,
+          300,
+          600,
+          100,
+          10,
+          0
+        ]
+      },
+      "total" : 4040
+    },
+    "zed" : {
+      "calls" : 3,
+      "cost" : 0.0010295199999999999,
+      "models" : {
+        "openai-subscribed\/gpt-6-luna" : [
+          50,
+          1,
+          40,
+          2,
+          0,
+          8,
+          0
+        ],
+        "zed.dev\/claude-sonnet-4-5" : [
+          257,
+          2,
+          190,
+          30,
+          10,
+          27,
+          0
+        ]
+      },
+      "total" : 307
+    }
+  },
+  "total" : 34990,
+  "unpriced" : [
+    "codebuff\/codebuff-unknown",
+    "devin\/unknown",
+    "github-copilot\/auto-resolved",
+    "github-copilot\/m3"
+  ],
+  "window" : "all"
+}

@@ -1,0 +1,1 @@
+[{"id":"cb-1","variant":"ai","metadata":{"model":"claude-haiku-5-5","usage":{"input_tokens":100,"output_tokens":30,"cache_read_input_tokens":40,"cache_creation_input_tokens":10}}},{"id":"cbd-1","role":"assistant","metadata":{"model":"gpt-6-luna","usage":{"input_tokens":5,"output_tokens":1}}}]

@@ -1,0 +1,12 @@
+{"kind":0,"v":{"requests":[{"message":{"text":"x"},"modelId":"copilot\/gpt-6-luna","requestId":"r0","timestamp":1793968800000}],"version":3}}
+{"k":["requests",0,"promptTokens"],"kind":1,"v":1200}
+{"k":["requests",0,"completionTokens"],"kind":1,"v":80}
+{"k":["requests",0,"result"],"kind":1,"v":{"metadata":{"resolvedModel":"gpt-6-luna-2026"},"timings":{"t":1}}}
+{"k":["requests",0,"response"],"kind":2,"v":[{"value":"text"}]}
+{"k":["requests"],"kind":2,"v":[{"completionTokens":20,"modelId":"copilot\/auto","promptTokens":500,"timestamp":1793968860000},{"completionTokens":99,"modelId":"gpt-x","promptTokens":999,"timestamp":1793968920000},{"modelId":"copilot\/x","result":{"metadata":{"outputTokens":7,"promptTokens":70,"resolvedModel":"m3"}},"timestamp":1793968980000}]}
+{"k":["requests",999999,"promptTokens"],"kind":1,"v":5}
+{"k":["requests",1,"result","metadata","resolvedModel"],"kind":1,"v":"auto-resolved"}
+{"kind":1,"k":["requests",0,"response"],"v":[{"value":"streamed text } ] with \" brackets"}]}
+{"kind":2,"k":["requests",1,"response"],"v":[{"value":"more"}]}
+{"kind":1,"k":["requests",1,"completionTokens"],"v":25}
+{"kind":1,"k":["requests",1,"followups"],"v":[]}

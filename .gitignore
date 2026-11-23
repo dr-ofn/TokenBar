@@ -1,0 +1,11 @@
+*.xcodeproj
+.DS_Store
+.backups/
+.build/
+.swiftpm/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

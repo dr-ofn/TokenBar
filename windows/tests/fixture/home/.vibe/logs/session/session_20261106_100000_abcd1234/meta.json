@@ -1,0 +1,1 @@
+{"session_id":"vibe-s1","start_time":"2026-11-06T10:00:00+00:00","end_time":"2026-11-06T10:30:00+00:00","stats":{"session_prompt_tokens":1000,"session_completion_tokens":100,"session_cached_tokens":600,"steps":3},"config":{"active_model":"","models":{"mistral-medium-latest":{"alias":"mistral-medium-latest"}}}}

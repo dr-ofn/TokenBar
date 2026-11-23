@@ -1,0 +1,2 @@
+{"type":"llm.request","modelAlias":"openrouter/gpt-6-luna"}
+{"time":"2026-11-06T10:00:00Z","event":{"type":"step.end","messageId":"k1","usage":{"inputOther":20,"inputCacheRead":2,"inputCacheCreation":3,"output":5}}}

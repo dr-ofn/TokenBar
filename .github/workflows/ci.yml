@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-check:
+    # macos-26 is an arm64 (M1) runner; `macos-latest` points to it too. Its default Xcode (26.6)
+    # ships a Swift 6 toolchain, which Package.swift (swift-tools-version 6.0) needs.
+    # Runner list: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      # The embedded price snapshot and the hand-made tables only: no cache file, alias file or network.
+      TOKENBAR_PRICES_PINNED: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          python3 --version
+
+      - name: Install zstd
+        # Optional for the app (it reads .jsonl.zst archives and zstd-compressed Zed threads with it); the data
+        # checks pack fixtures with it, and skip those checks, saying so, when it is missing.
+        run: command -v zstd || brew install zstd
+
+      - name: Build (release)
+        run: swift build -c release
+
+      - name: Data checks (TokenChecks)
+        # Also writes the made-up home to .build/release/tokenbar-fixture, used by the next step.
+        run: swift run -c release TokenChecks
+
+      - name: UI invariants
+        run: .build/release/UISnapshot selfcheck
+
+      - name: CLI vs oracle on the made-up home
+        # The CI machine has no real AI-tool logs, so scripts/check.sh (which also compares a live home)
+        # is not run here; this step is its made-up-home part. The oracle needs python3.
+        run: |
+          set -euo pipefail
+          fixture="$PWD/.build/release/tokenbar-fixture"
+          summary='import json,sys; d=json.load(sys.stdin); print(d["total"], d["calls"], round(d["cost"], 6))'
+          cli=$(.build/release/tokenbar-cli --home "$fixture" --db "$fixture/check.sqlite" --rebuild --window all --json | python3 -c "$summary")
+          orc=$(HOME="$fixture" python3 scripts/oracle.py all | python3 -c "$summary")
+          echo "cli    : $cli"
+          echo "oracle : $orc"
+          test -n "$cli" && test "$cli" = "$orc"
+
+      - name: Universal build (arm64 + x86_64)
+        run: swift build -c release --product TokenBar --arch arm64 --arch x86_64

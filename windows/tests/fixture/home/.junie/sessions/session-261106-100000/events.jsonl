@@ -1,0 +1,4 @@
+{"kind":"UserPromptEvent","timestampMs":1793968700000}
+{"timestampMs":1793968800000,"event":{"agentEvent":{"kind":"LlmResponseMetadataEvent","modelUsage":[{"model":"claude-haiku-5-5","provider":"Anthropic","inputTokens":100,"outputTokens":20,"cacheInputTokens":50,"cacheCreateTokens":10,"reasoningTokens":5,"cost":0.01},{"model":"gpt-6-luna","inputTokens":30,"outputTokens":4}]}}}
+{"timestampMs":1793968800000,"event":{"agentEvent":{"kind":"LlmResponseMetadataEvent","modelUsage":[{"model":"claude-haiku-5-5","provider":"Anthropic","inputTokens":100,"outputTokens":20,"cacheInputTokens":50,"cacheCreateTokens":10,"reasoningTokens":5,"cost":0.01},{"model":"gpt-6-luna","inputTokens":30,"outputTokens":4}]}}}
+{"timestampMs":1793968900000,"event":{"agentEvent":{"kind":"AgentStateUpdatedEvent","note":"LlmResponseMetadataEvent","modelUsage":[{"model":"x","inputTokens":5000}]}}}
