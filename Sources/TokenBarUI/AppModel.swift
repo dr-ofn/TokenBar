@@ -12,6 +12,9 @@ public final class AppModel {
     /// Harness logs change constantly while agents run; file events scan this often at most.
     private static let eventScanSeconds = 15.0
     private static let timerSeconds = 60.0
+    /// How often the app asks the price feed whether a day has passed (as the Windows app does): the feed leaves a
+    /// cache younger than a day alone, so most asks cost a read of three small files and nothing else.
+    private static let priceCheckSeconds = 6.0 * 3600
 
     public var prefs = Preferences.load()
     public var book: UsageBook?
@@ -66,6 +69,13 @@ public final class AppModel {
             while !Task.isCancelled {
                 self?.requestScan(reload: true)
                 try? await Task.sleep(for: .seconds(Self.timerSeconds))
+            }
+        }
+        // The app may run for weeks: the prices are asked for again every few hours (the feed's one-day wait decides).
+        Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.priceCheckSeconds))
+                PriceBook.startBackgroundRefresh()
             }
         }
     }

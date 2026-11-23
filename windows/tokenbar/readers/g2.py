@@ -115,7 +115,9 @@ def _task_log(sink, path, prefix, roo, file_mtime):
                 model = hints[1]
         model = model or "unknown"
         if provider is None:
-            provider = model.split("/")[0] if "/" in model else (proto or "")
+            # (empty pieces are dropped, as the Mac reader's `split` does: "/claude-opus-5-5" is `claude-opus-5-5`)
+            first = [piece for piece in model.split("/") if piece] if "/" in model else []
+            provider = first[0] if first else (proto or "")
         stamp = str(int(ms)) if ms is not None else f"i{index}"
         key = f"{prefix}:{task}:{'del:' if row['say'] == 'deleted_api_reqs' else ''}{stamp}"
         seen[key] = seen.get(key, 0) + 1
@@ -153,7 +155,7 @@ def _cline_cli(sink, path, prefix, file_mtime):
         ordinal += 1
         if clamp(inp) + clamp(cr) + clamp(cw) + clamp(out) == 0:
             continue
-        ts = to_seconds(m.get("ts")) if is_number(m.get("ts")) else 0.0
+        ts = to_seconds(m.get("ts"))
         mid = m.get("id")
         sink.add(f"{prefix}:{session}:{mid if isinstance(mid, str) and mid else mine}", ts if ts > 0 else file_mtime,
                  provider, model, inp, cr, cw, out, 0)
@@ -284,7 +286,7 @@ def read_copilot_chat(ctx, d, path, offset, limit, settled, sink):
         model = next((m for m in (resolved, named[8:] if named.startswith("copilot/") else named) if m), "auto")
         ms = whole(r["timestamp"]) if is_number(r.get("timestamp")) else 0
         stamp = str(ms) if ms > 0 else f"i{index}"
-        sink.add(f"copilot-chat:{session}:{stamp}", to_seconds(r.get("timestamp")) if ms > 0 else 0.0, "github-copilot",
+        sink.add(f"copilot-chat:{session}:{stamp}", max(0.0, to_seconds(r.get("timestamp"))), "github-copilot",
                  model, prompt, 0, 0, done, 0)
     return limit
 
@@ -333,6 +335,8 @@ def read_zed(ctx, d, path, offset, limit, settled, sink):
         return None
     unknown = 0
     for tid, updated, made, kind, blob in rows:
+        if tid is None:                     # a thread with no id has no key (the Mac reader skips it)
+            continue
         kind = (kind or "").strip().lower() if isinstance(kind, str) else ""
         raw = bytes(blob) if isinstance(blob, (bytes, bytearray)) else (blob or "").encode("utf-8", "replace") if isinstance(blob, str) else b""
         if kind == "zstd":

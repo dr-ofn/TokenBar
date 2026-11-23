@@ -281,7 +281,9 @@ func priceChecks() {
     check("OpenRouter: string USD per token becomes USD per million", close(rates(alpha), [3, 15, 0.3, 3.75, 3.75]) && alpha?.kind == .openrouter)
     check("OpenRouter: only a prompt-length override is a tier", alpha?.tiers.count == 1 && alpha?.tiers.first?.minPrompt == 200_000
           && close([alpha?.tiers.first?.rates.input ?? 0, alpha?.tiers.first?.rates.output ?? 0], [6, 22.5]))
-    check("OpenRouter: a missing tier cache price falls back to the tier's input price", alpha?.tiers.first?.rates.cacheRead == 6)
+    // 9.0.1: a tier that does not state a cache price keeps the base row's (0.3), as a LiteLLM tier does; it used to
+    // fall to the tier's input price (6), which priced a cache read at twice the base's input.
+    check("OpenRouter: a missing tier cache price is the base row's, not the tier's input price", alpha?.tiers.first?.rates.cacheRead == 0.3)
     check("OpenRouter: -1 routers and zero prices are ignored", price("openrouter/auto") == nil && price("acme/zero-2") == nil)
     check("OpenRouter: a :batch row is its own price when asked by id, and never the bare name's", close(rates(price("acme/alpha-1:batch")), [1.5, 7.5, 1.5, 1.5, 1.5])
           && close(rates(price("alpha-1")), [3, 15, 0.3, 3.75, 3.75]) && close(rates(price("acme/alpha-1:free")), [3, 15, 0.3, 3.75, 3.75]))
@@ -427,7 +429,9 @@ func priceChecks() {
     PriceBook.install(catalogs: .embedded)
     let common = ["gpt-4o", "gpt-4.1", "gemini-2.5-pro", "claude-sonnet-4-5", "deepseek-chat"].filter { price($0, "openai")?.kind == .litellm || price($0, "openai")?.kind == .modelsdev }
     check("snapshot: it prices well-known models with no table row (\(common.count) of 5)", common.count >= 3)
-    PriceBook.install(catalogs: PriceCatalogs.fromRaw([.openrouter: Data("{\"data\":[{\"id\":\"anthropic/claude-opus-5-5\",\"name\":\"x\",\"pricing\":{\"prompt\":\"0.000001\",\"completion\":\"0.000002\"}}]}".utf8)]))
+    // The table wins over a LiteLLM or models.dev row. (Over a live OpenRouter row it gives way, when it is a copy of an
+    // OpenRouter price: see the 9.0.1 checks.)
+    PriceBook.install(catalogs: PriceCatalogs.fromRaw([.litellm: Data("{\"claude-opus-5-5\":{\"mode\":\"chat\",\"input_cost_per_token\":1e-6,\"output_cost_per_token\":2e-6}}".utf8)]))
     check("override layer: the hand-corrected table wins over a catalogue", price("claude-opus-5-5")?.catalogID == nil && price("claude-opus-5-5")?.rates.input == 4
           && price("big-pickle")?.kind == .near)
     check("override layer: a free mark still reaches the table's row", price("beam-free")?.kind == .near)
@@ -558,8 +562,10 @@ func priceChecks() {
         installLocal(feed)
         check("feed: catalogues fed from files, no network", Set(report.updated) == Set(PriceSource.allCases) && price("eps-5")?.kind == .modelsdev && price("gamma-3")?.kind == .litellm)
         let litellmCache = (try? String(contentsOf: dir.appendingPathComponent("prices-litellm.json"), encoding: .utf8)) ?? ""
+        // The cache keeps the winner of each key and the rows an exact id reaches with a price of their own (the Vertex
+        // row of delta-4 has its own price): not the rows of other modes (embed-1) or the ones that price nothing.
         check("feed: the cache keeps only the rows a lookup can return", cacheFiles(dir).count == 3 && litellmCache.contains("\"delta-4\"")
-              && !litellmCache.contains("vertex_ai") && !litellmCache.contains("embed-1") && !litellmCache.contains("free-chat"))
+              && litellmCache.contains("vertex_ai") && !litellmCache.contains("embed-1") && !litellmCache.contains("free-chat"))
         try? FileManager.default.removeItem(at: dir)
         try? FileManager.default.removeItem(at: feedDir)
     }

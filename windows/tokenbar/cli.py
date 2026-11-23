@@ -3,7 +3,7 @@
     tokenbar --window all --json         the same JSON as the Mac app's command line
     tokenbar --window 7d                 a text report
     tokenbar --home DIR                  read another home folder (a backup, a test folder), no variable followed
-    tokenbar --db PATH, --no-scan, --rebuild, --index, --refresh-prices, --offline
+    tokenbar --db PATH, --no-scan, --rebuild, --index, --refresh-prices (alias --prices-now), --offline
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from .scanner import Scanner
 from .store import Store, StoreError
 
 CLI_FLAGS = {"--window", "-w", "--json", "--home", "--db", "--rebuild", "--no-scan", "--index", "--refresh-prices",
-             "--offline", "--version", "-h", "--help", "--output"}
+             "--prices-now", "--offline", "--version", "-h", "--help", "--output"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,15 +37,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rebuild", action="store_true", help=t("indeksi sıfırla (varsayılan indekste reddedilir)", "reset the index (refused for the live index)"))
     p.add_argument("--no-scan", action="store_true", help=t("taramadan raporla", "report without scanning"))
     p.add_argument("--index", action="store_true", help=t("indeks bilgisi", "show index info"))
-    p.add_argument("--refresh-prices", action="store_true", help=t("fiyat listelerini şimdi indir (günde bir kez)", "fetch the price lists now (once a day at most)"))
+    p.add_argument("--refresh-prices", "--prices-now", dest="refresh_prices", action="store_true", help=t("fiyat listelerini şimdi indir (günlük beklemeyi yok sayar, menüdeki Fiyatları güncelle gibi)", "fetch the price lists now, whatever the one-day wait says (like the menu's Update prices)"))
     p.add_argument("--offline", action="store_true", help=t("ağa hiç çıkma", "never touch the network"))
     p.add_argument("--output", help=t("çıktıyı bu dosyaya yaz", "write the output to this file"))
     p.add_argument("--version", action="store_true")
     return p
 
 
+GUI_ARGS = {"--show"}       # what the tray app itself takes (`--selftest-gui` is handled before)
+
+
 def is_cli(argv: list[str]) -> bool:
-    return any(a.split("=", 1)[0] in CLI_FLAGS for a in argv)
+    """TokenBar.exe is the tray app only with no arguments (or `--show`). Anything else is the command line, so a flag
+    the parser does not know (`-w7d` mistyped, `--bogus`) is an error with a message and not a window that opens."""
+    return any(a not in GUI_ARGS for a in argv)
 
 
 def _attach_console() -> None:
@@ -81,7 +86,11 @@ def run_cli(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
     out = sys.stdout
     if args.version:
-        print(__version__)
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(__version__ + "\n")
+        else:
+            print(__version__)
         return 0
     env = Env.for_home(args.home) if args.home else Env.from_os()
     # The index and the price cache are TokenBar's own files: they live with the person running it (or in `--db`),
@@ -106,7 +115,7 @@ def run_cli(argv: list[str]) -> int:
         # The price cache is the user's own; the price names (model-aliases.json) are the inspected home's, as on the Mac.
         book = PriceBook(own, offline=args.offline, aliases_env=env if args.home else None)
         if args.refresh_prices:
-            report = book.refresh()
+            report = book.refresh(force=True)
             if report is not None:
                 print(t("fiyatlar: ", "prices: ") + f"{len(report.updated)} updated, {len(report.not_modified)} not modified, "
                       f"{len(report.fresh)} fresh, {len(report.failed)} failed", file=sys.stderr)

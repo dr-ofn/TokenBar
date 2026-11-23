@@ -104,7 +104,13 @@ public final class UsageStore {
     /// counted once. `event_files` says which files hold a key (a set: both copies hold it); the copy that is read
     /// again retires the keys it holds and writes what it holds now, and leaves the keys only the other copy holds.
     /// `events.file` is the last writer, kept for an index made before that table (and is how such a row is found).
-    private static let moreComplete = ["input", "cr", "cw", "output", "reasoning", "cw1h", "model", "provider"]
+    private static let moreComplete = ["input", "cr", "cw", "output", "reasoning", "cw1h", "provider"]
+    /// A row written as `unknown` (the model was not named yet) takes the model a later read gives it, with the same counts or more.
+    /// A later read without a model name never replaces a model the row already has.
+    private static let modelUpdate = "model=CASE WHEN excluded.model <> 'unknown' AND (\(isMore) OR events.model = 'unknown') THEN excluded.model ELSE events.model END"
+    /// A row stored with no date (9.0.0 wrote 1970 for the ISO text dates of Crush, Devin, Copilot Chat and Cline) takes the
+    /// date a later read gives it; a date the row has is never replaced.
+    private static let tsUpdate = "ts=CASE WHEN events.ts <= 0 AND excluded.ts > 0 THEN excluded.ts ELSE events.ts END"
     private static let isMore = "(excluded.input + excluded.cr + excluded.cw + excluded.output) > (events.input + events.cr + events.cw + events.output)"
 
     private func prepareUpsert() throws -> Statement {
@@ -113,6 +119,8 @@ public final class UsageStore {
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(key) DO UPDATE SET
             \(Self.moreComplete.map { "\($0)=CASE WHEN \(Self.isMore) THEN excluded.\($0) ELSE events.\($0) END" }.joined(separator: ", ")),
+            \(Self.modelUpdate),
+            \(Self.tsUpdate),
             file=excluded.file
         """)
     }
@@ -248,6 +256,24 @@ public final class UsageStore {
                 try file.step()
                 for (key, value) in u.meta { try setMeta(key, value) }
             }
+        }
+    }
+
+    /// Once, for an index 9.0.0 made: rows dated 1970 (a tool's date that 9.0.0 could not read) get their date when
+    /// the file or database they came from is read again, but a file whose stamp did not change is not read again. So
+    /// the files those rows name are forgotten (their `files` record and database stamps), and the next scan reads them
+    /// whole. The rows' keys are the same, so nothing is counted twice; the upsert only fills in the date.
+    func repairZeroDates() throws {
+        let flag = "repair:ts-zero-901"
+        guard meta(flag) == nil else { return }
+        try db.transaction {
+            try db.exec("""
+                DELETE FROM files WHERE path IN (SELECT DISTINCT file FROM events WHERE ts <= 0);
+                DELETE FROM meta WHERE k IN (SELECT 'g3stamp:' || file FROM events WHERE ts <= 0
+                                             UNION SELECT 'dbstamp:' || file FROM events WHERE ts <= 0
+                                             UNION SELECT 'watermark:' || file FROM events WHERE ts <= 0);
+                INSERT INTO meta(k, v) VALUES('\(flag)', '1') ON CONFLICT(k) DO UPDATE SET v = '1';
+                """)
         }
     }
 

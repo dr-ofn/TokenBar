@@ -6,6 +6,7 @@ refused, never rebuilt: the index holds calls whose logs may be gone.
 """
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 import threading
@@ -15,6 +16,7 @@ from .readers.base import Event
 from .util import FIELD_LIMIT, clamp
 
 SCHEMA_VERSION = 1
+DBSTAMP = "dbstamp:"
 
 
 # A repeated key keeps its most complete counts. A task found in two places (the same id in two editors) is counted
@@ -22,12 +24,19 @@ SCHEMA_VERSION = 1
 # keys it holds and writes what it holds now, and leaves the keys only the other copy holds. `events.file` is the
 # last writer, kept for an index made before that table existed (and is how such a row is still found).
 _MORE = "(excluded.input + excluded.cr + excluded.cw + excluded.output) > (events.input + events.cr + events.cw + events.output)"
+# A row written as `unknown` (the model was not named yet) takes the model a later read names, with the same counts or
+# more (the Mac app's upsert); a known model is never replaced by `unknown`.
+_MODEL = (f"model=CASE WHEN excluded.model <> 'unknown' AND (events.model = 'unknown' OR {_MORE}) "
+          f"THEN excluded.model ELSE events.model END")
+# A row stored with no date (9.0.0 wrote 1970 for the ISO text dates of Crush, Devin, Copilot Chat and Cline) takes the
+# date a later read gives it; a date the row has is never replaced (the Mac app's upsert).
+_TS = "ts=CASE WHEN events.ts <= 0 AND excluded.ts > 0 THEN excluded.ts ELSE events.ts END"
 _UPSERT_SQL = (
     "INSERT INTO events(key, provider, model, ts, input, cr, cw, output, reasoning, session, cw1h, file) "
     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
     + ", ".join(f"{c}=CASE WHEN {_MORE} THEN excluded.{c} ELSE events.{c} END"
-                for c in ("input", "cr", "cw", "output", "reasoning", "cw1h", "model", "provider"))
-    + ", file=excluded.file")
+                for c in ("input", "cr", "cw", "output", "reasoning", "cw1h", "provider"))
+    + ", " + _MODEL + ", " + _TS + ", file=excluded.file")
 
 
 _EVENT_FILES_SQL = "CREATE TABLE IF NOT EXISTS event_files(key TEXT NOT NULL, file TEXT NOT NULL, PRIMARY KEY(key, file)) WITHOUT ROWID"
@@ -55,6 +64,7 @@ class FileRecord:
     size: int
     mtime: float
     offset: int
+    stamp: str | None = None      # a database's `inode:size:mtime_ns|...` stamp, kept in `meta` (see Scanner)
 
 
 class Store:
@@ -68,6 +78,8 @@ class Store:
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.execute("PRAGMA synchronous=NORMAL")
             self._migrate()
+            self._repair_costs()
+            self._repair_zero_dates()
         except (sqlite3.Error, OSError) as e:
             raise StoreError(f"{path}: {e}") from e
 
@@ -76,6 +88,52 @@ class Store:
             self.db.close()
 
     # ---------------------------------------------------------------------------------- schema
+
+    def _repair_costs(self) -> None:
+        """9.0.0 keyed a Claude Code run by its raw (fractional) start time and kept rows for cost lines without a
+        session id. The Mac app keys a run by whole seconds and skips such a line: the rows are folded the same way
+        (the larger count of each stands), and the session adjustment is computed again at the next pass."""
+        odd_sql = ("SELECT session, started, model, input, cr, cw, output FROM costs "
+                   "WHERE session = '' OR started <> CAST(started AS INTEGER)")
+        if not self.db.execute(odd_sql).fetchall():
+            return                  # nothing to repair: no write lock taken
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            # Read inside the transaction: a row another program wrote after an earlier read would be deleted unread.
+            odd = self.db.execute(odd_sql).fetchall()
+            self.db.execute("DELETE FROM costs WHERE session = '' OR started <> CAST(started AS INTEGER)")
+            for session, started, model, i, cr, cw, o in odd:
+                if not session:
+                    continue
+                self.db.execute("""
+                    INSERT INTO costs(session, started, model, input, cr, cw, output) VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(session, started, model) DO UPDATE SET input=max(input, excluded.input),
+                      cr=max(cr, excluded.cr), cw=max(cw, excluded.cw), output=max(output, excluded.output)""",
+                                (session, float(math.floor(started)), model, i, cr, cw, o))
+            self.db.execute("INSERT INTO meta(k, v) VALUES('cc-adjust-stale', '1') ON CONFLICT(k) DO UPDATE SET v = '1'")
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+
+    def _repair_zero_dates(self) -> None:
+        """Once, for an index 9.0.0 made: rows dated 1970 get their date when the file or database they came from is read
+        again, but a file that did not change is not read again. So the files those rows name are forgotten (their
+        `files` record and database stamp) and the next pass reads them whole. The keys are the same: nothing is counted
+        twice, the upsert only fills in the date."""
+        flag = "repair:ts-zero-901"
+        if self.db.execute("SELECT 1 FROM meta WHERE k = ?", (flag,)).fetchone() is not None:
+            return
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            if self.db.execute("SELECT 1 FROM meta WHERE k = ?", (flag,)).fetchone() is None:
+                self.db.execute("DELETE FROM files WHERE path IN (SELECT DISTINCT file FROM events WHERE ts <= 0)")
+                self.db.execute("DELETE FROM meta WHERE k IN (SELECT ? || file FROM events WHERE ts <= 0)", (DBSTAMP,))
+                self.db.execute("INSERT INTO meta(k, v) VALUES(?, '1') ON CONFLICT(k) DO UPDATE SET v = '1'", (flag,))
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
 
     def _migrate(self) -> None:
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
@@ -132,6 +190,12 @@ class Store:
             row = self.db.execute("SELECT v FROM meta WHERE k = ?", (key,)).fetchone()
         return row[0] if row else None
 
+    def db_stamps(self) -> dict[str, str]:
+        """path -> the stamp a database had when it was last read to the end."""
+        with self._lock:
+            rows = self.db.execute("SELECT k, v FROM meta WHERE k >= ? AND k < ?", (DBSTAMP, DBSTAMP[:-1] + ";")).fetchall()
+        return {k[len(DBSTAMP):]: v for k, v in rows}
+
     def set_meta(self, key: str, value: str) -> None:
         with self._lock:
             self.db.execute("INSERT INTO meta(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", (key, value))
@@ -172,6 +236,9 @@ class Store:
                         self.db.execute(
                             "INSERT OR REPLACE INTO files(path, inode, size, mtime, offset) VALUES(?,?,?,?,?)",
                             (record.path, inode_to_db(record.inode), record.size, record.mtime, record.offset))
+                        if record.stamp is not None:
+                            self.db.execute("INSERT INTO meta(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                                            (DBSTAMP + record.path, record.stamp))
                 self.db.execute("COMMIT")
             except BaseException:
                 self.db.execute("ROLLBACK")
@@ -243,6 +310,7 @@ class Store:
                 s = out[(session, model)] = [0, 0, 0, 0, 0, provider]
             for n, v in enumerate((i, cr, cw, o, rz)):
                 s[n] = clamp(s[n] + v)
+            s[5] = min(s[5], provider)       # MIN(provider), as the Mac app: not whichever row came first
         return {k: (tuple(v) if with_provider else tuple(v[:4])) for k, v in out.items()}
 
     def events_since(self, cutoff: float | None):

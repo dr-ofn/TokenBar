@@ -92,7 +92,7 @@ tokenbar-cli.exe --window 7d             metin raporu
 tokenbar-cli.exe --home D:\yedek\ben     başka bir ev klasörünü oku (ortam değişkeni izlenmez;
                                          indeks kendi %LOCALAPPDATA%'nda kalır, o klasöre hiçbir şey yazılmaz;
                                          sayılarını kendi indeksinden ayırmak için --db DOSYA ekle)
-tokenbar-cli.exe --refresh-prices        fiyat listelerini şimdi indir (bir günlük önbelleğe saygı gösterir)
+tokenbar-cli.exe --refresh-prices        (ya da --prices-now) fiyat listelerini şimdi indir (bir günlük önbelleğe saygı gösterir)
 tokenbar-cli.exe --offline --no-scan     indeksten raporla, hiçbir şeye dokunma
 ```
 

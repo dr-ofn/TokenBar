@@ -19,7 +19,8 @@ import Foundation
 public struct UserAliases: Sendable {
     public enum Target: Sendable, Equatable {
         case model(String)
-        case rates(input: Double, output: Double, cacheRead: Double, cacheWrite: Double, name: String?, source: String?, kind: PriceKind)
+        /// A cache price left out is nil (it costs what input costs); one written as 0 is 0, a free cache.
+        case rates(input: Double, output: Double, cacheRead: Double?, cacheWrite: Double?, name: String?, source: String?, kind: PriceKind)
         case free
     }
 
@@ -62,9 +63,11 @@ public struct UserAliases: Sendable {
         // The same bound a catalogue row has to meet: a hand-written 1e308 would turn into an `Infinity` cost, a
         // negative cache price into a negative one. An entry that breaks it is no entry (a broken line, not a crash).
         guard input > 0, output > 0, [input, output, cacheRead, cacheWrite].allSatisfy(PriceLimits.isRate) else { return nil }
+        // 0 is a price (a free cache); only a key that is not there leaves the cache priced like input.
+        func given(_ key: String, _ value: Double) -> Double? { d[key] is NSNumber || d[key] is String ? value : nil }
         let source = (d["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let kind: PriceKind = d["kind"] as? String == "near" ? .near : d["kind"] as? String == "other" ? .other : .alias
-        return .rates(input: input, output: output, cacheRead: cacheRead,
-                      cacheWrite: cacheWrite, name: d["name"] as? String, source: source, kind: kind)
+        return .rates(input: input, output: output, cacheRead: given("cacheRead", cacheRead),
+                      cacheWrite: given("cacheWrite", cacheWrite), name: d["name"] as? String, source: source, kind: kind)
     }
 }

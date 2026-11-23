@@ -42,9 +42,16 @@ extension UsageScanner {
         if file.path.hasSuffix(".zst") {
             // Finished rollouts are compressed and never change: always whole, from a clean state.
             var parser = CodexParser(state: .init(), fallbackSession: session, file: file.path)
-            try Zstd.forEachLine(path: file.path) { line in
-                parser.consume(line: line)
-                return true
+            do {
+                try Zstd.forEachLine(path: file.path) { line in
+                    parser.consume(line: line)
+                    return true
+                }
+            } catch let failure as Zstd.Failure {
+                // What was read before the limit counts (the totals are cumulative); the archive is named once and, being
+                // recorded, is not unpacked again on every pass.
+                guard case .tooLarge = failure else { throw failure }
+                return FileRead(events: parser.events, end: file.limit, issues: [failure.localizedDescription])
             }
             // The offset is in the file's own units, its size on disk: not the decompressed length.
             return FileRead(events: parser.events, end: file.limit)
@@ -61,7 +68,14 @@ extension UsageScanner {
             }
         }
         var parser = CodexParser(state: state, fallbackSession: session, file: file.path)
-        let end = try readLines(read) { parser.consume(line: $0) }
+        var end = try readLines(read) { parser.consume(line: $0) }
+        if parser.needsRestart {
+            // The model came after rows that were written as `unknown`: read the file again from its start, from a clean
+            // state, so every call carries the model (the store gives the model to a row that had none).
+            read.offset = 0
+            parser = CodexParser(state: .init(), fallbackSession: session, file: file.path)
+            end = try readLines(read) { parser.consume(line: $0) }
+        }
         var out = FileRead(events: parser.events, end: end)
         // The state rides along with the events and offset: written ahead of them, a
         // failed commit would make the retried tail look like a counter reset.
@@ -132,8 +146,30 @@ extension UsageScanner {
         return FileRead(events: DevinParser.events(data: data, fallbackSession: fallback, file: file.path), end: file.limit)
     }
 
+    /// Antigravity's conversation databases are in WAL mode: a write may touch only `<id>.db-wal`, so that file is listed
+    /// too and its change wakes the same read. The pair is read once per pass, from a copy that holds the `-wal`.
     func readAntigravity(_ file: FileToRead) throws -> FileRead {
-        let conversation = ((file.path as NSString).lastPathComponent as NSString).deletingPathExtension
-        return FileRead(events: try AntigravityReader.events(dbPath: file.path, conversation: conversation), end: file.limit)
+        let path = file.path.hasSuffix("-wal") ? String(file.path.dropLast(4)) : file.path
+        guard Self.fileInfo(path) != nil else { return FileRead(events: [], end: file.limit) }
+        if readThisPass.contains(path) { return FileRead(events: [], end: pairEnd(path, file.limit)) }
+        let conversation = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
+        let before = pairStamp(path)
+        let events = try AntigravityReader.events(dbPath: path, conversation: conversation)
+        readThisPass.insert(path)
+        pairStamps[path] = before
+        afterPairRead?(path)
+        return FileRead(events: events, end: file.limit)
+    }
+
+    /// The stamp of a database and its `-wal` together, each file on its own (a sum of two mtimes is the same for
+    /// different pairs).
+    func pairStamp(_ path: String) -> String {
+        (Self.fileInfo(path).map(Self.stamp) ?? "-") + "|" + (Self.fileInfo(path + "-wal").map(Self.stamp) ?? "-")
+    }
+
+    /// Where the second file of a pair, already read in this pass, is recorded as read: its whole size when the pair is
+    /// as it was when it was read, 0 (read again next pass) when a write came in between.
+    func pairEnd(_ path: String, _ limit: UInt64) -> UInt64 {
+        pairStamps[path] == pairStamp(path) ? limit : 0
     }
 }

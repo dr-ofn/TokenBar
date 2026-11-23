@@ -17,9 +17,9 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from .engine import (CATALOGUE_NAMES, PARSERS, SOURCES, Catalogue, compact_rows)
+from .engine import (CATALOGUE_NAMES, PARSERS, SOURCES, Catalogue, compact_rows, split)
 
-SCHEMA = 1
+SCHEMA = 2           # 1 (9.0.0) kept no exact-id rows a lookup could still reach: read, never trusted for an ETag
 URLS = {
     "openrouter": "https://openrouter.ai/api/v1/models",
     "litellm": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
@@ -87,7 +87,9 @@ class RefreshReport:
 class CacheFile:
     etag: str | None
     fetched: float
-    rows: dict
+    rows: dict                                   # the row the index picks for each key
+    exact: dict = field(default_factory=dict)    # rows only an exact id reaches (engine.split); none in an older cache file
+    schema: int = SCHEMA                         # a file under SCHEMA is read but asked for again, in full
 
 
 _gate = threading.Lock()
@@ -126,6 +128,7 @@ class PriceFeed:
         self.fetcher = fetcher
         self.now = now
         self.should_stop = should_stop
+        self.snapshot_exact: dict = {}
         self.snapshot_path = snapshot_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "prices-snapshot.json")
 
     # ---- disk
@@ -142,20 +145,28 @@ class PriceFeed:
                 root = json.load(f)
         except (OSError, ValueError, RecursionError):
             return None
-        if not isinstance(root, dict) or root.get("schema") != SCHEMA or root.get("source") != source:
+        schema = root.get("schema") if isinstance(root, dict) else None
+        if isinstance(schema, bool) or schema not in (1, SCHEMA) or root.get("source") != source:
             return None
         fetched = root.get("fetched")
         if isinstance(fetched, bool) or not isinstance(fetched, (int, float)):
             return None
-        rows = compact_rows(root.get("rows"))
-        if rows is None:
+        rows, exact = compact_rows(root.get("rows")) or {}, compact_rows(root.get("exact")) or {}
+        if not rows and not exact:      # a catalogue of routes alone has no winner, but its exact rows are a cache
             return None
         etag = root.get("etag")
-        return CacheFile(etag if isinstance(etag, str) else None, float(fetched), rows)
+        return CacheFile(etag if isinstance(etag, str) else None, float(fetched), rows, exact, schema)
 
     def write_cache(self, source, rows, etag, fetched) -> None:
-        kept = {rid: row for rid, row in Catalogue(source, rows).by_key.values()}
-        root = {"schema": SCHEMA, "source": source, "url": URLS[source], "fetched": fetched, "rows": kept}
+        """What a lookup can return: the row the index picks for each key and the rows an exact id reaches with a price of
+        their own (`engine.split`), so the cache stays small and prices every name as the whole catalogue did."""
+        winners, exact = split(source, rows)
+        self._store_cache(source, winners, exact, etag, fetched)
+
+    def _store_cache(self, source, winners, exact, etag, fetched) -> None:
+        root = {"schema": SCHEMA, "source": source, "url": URLS[source], "fetched": fetched, "rows": winners}
+        if exact:
+            root["exact"] = exact
         if etag:
             root["etag"] = etag
         _write_json(self._cache_path(source), root)
@@ -177,6 +188,8 @@ class PriceFeed:
         except (OSError, ValueError):
             return {}, ""
         rows = {s: compact_rows(root.get(s)) for s in ("litellm", "modelsdev")}
+        exact = root.get("exact") if isinstance(root.get("exact"), dict) else {}
+        self.snapshot_exact = {s: compact_rows(exact.get(s)) or {} for s in ("litellm", "modelsdev")}
         return {s: r for s, r in rows.items() if r}, str(root.get("generated") or "")
 
     def load_local(self, use_cache: bool = True) -> tuple[list, dict]:
@@ -186,10 +199,10 @@ class PriceFeed:
         for source in SOURCES:
             cache = self.read_cache(source) if use_cache else None
             if cache:
-                cats.append(Catalogue(source, cache.rows))
+                cats.append(Catalogue(source, cache.rows, cache.exact))
                 origins[source] = "cache " + time.strftime("%Y-%m-%d", time.gmtime(cache.fetched))
             elif source in embedded:
-                cats.append(Catalogue(source, embedded[source]))
+                cats.append(Catalogue(source, embedded[source], self.snapshot_exact.get(source)))
                 origins[source] = "snapshot " + generated
         return cats, origins
 
@@ -214,7 +227,8 @@ class PriceFeed:
             now = self.now()
             cache = self.read_cache(source)
             # A copy stamped in the future (the clock was set back) is not fresh: its age would be negative.
-            if not force and cache and 0 <= now - cache.fetched < self.ttl:
+            # A schema 1 copy lacks the exact rows: it is read, but the next pass asks for the whole catalogue (no ETag).
+            if not force and cache and cache.schema >= SCHEMA and 0 <= now - cache.fetched < self.ttl:
                 report.fresh.append(source)
                 continue
             last = failed.get(source)
@@ -222,11 +236,11 @@ class PriceFeed:
                 report.skipped.append(source)
                 continue
             try:
-                answer = self.fetcher(source, cache.etag if cache else None)
+                answer = self.fetcher(source, cache.etag if cache and cache.schema >= SCHEMA else None)
                 if answer[0] == "notmodified":
-                    if cache is None:
+                    if cache is None or cache.schema < SCHEMA:
                         raise FetchError("HTTP 304 without a cache")
-                    self.write_cache(source, cache.rows, cache.etag, now)
+                    self._store_cache(source, cache.rows, cache.exact, cache.etag, now)
                     report.not_modified.append(source)
                 else:
                     try:

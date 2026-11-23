@@ -18,6 +18,7 @@ from .window import MainWindow
 
 SCAN_SECONDS = 30
 PRICE_CHECK_SECONDS = 6 * 3600
+PRICE_RETRY_SECONDS = 3600      # after a failed fetch: an hour, doubling with every failure in a row, never past the six hours
 
 
 ERROR_ACCESS_DENIED = 5
@@ -144,8 +145,27 @@ def background_pass(model, requests, state, now=None) -> None:
     requests.put(("tooltip", tooltip(model, model.report())))
     requests.put("scanned")
     if now() - state.get("last_prices", 0.0) > PRICE_CHECK_SECONDS and not model.offline:
-        state["last_prices"] = now()
-        model.update_prices()
+        asked = now()
+        try:
+            report = model.update_prices()
+            failed = bool(getattr(report, "failed", None))
+        except Exception:
+            report, failed = None, True
+        if failed:
+            # asked again after an hour (twice as long after each failure in a row), not after the six hours of a success
+            state["price_failures"] = state.get("price_failures", 0) + 1
+            wait = min(PRICE_CHECK_SECONDS, PRICE_RETRY_SECONDS << (state["price_failures"] - 1))
+        else:
+            state["price_failures"] = 0
+            wait = PRICE_CHECK_SECONDS
+        state["last_prices"] = asked - PRICE_CHECK_SECONDS + wait
+        if getattr(report, "changed", False):
+            # new prices change what the tooltip says and what an open window shows: tell the main loop now
+            try:
+                requests.put(("tooltip", tooltip(model, model.report())))
+                requests.put("scanned")
+            except Exception:
+                pass
 
 
 def run_gui(argv) -> int:

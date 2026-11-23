@@ -850,6 +850,10 @@ do {
 
     try argonChecks(tempDir: tempDir)
 
+    try fix901bPriceChecks(tempDir: tempDir)
+    try fix901Checks(tempDir: tempDir)
+    try fix901bDataChecks(tempDir: tempDir)
+
     if !skipped.isEmpty { print("\(skipped.count) check(s) skipped, not run: \(skipped.joined(separator: "; "))") }
     if failures == 0 { print("ALL CHECKS PASS") } else { print("\(failures) FAILED") }
     exit(failures == 0 ? 0 : 1)

@@ -64,7 +64,7 @@ class Family:
     files: Callable            # (ctx, descriptor) -> list of paths
     read: Callable             # (ctx, descriptor, path, offset, limit, settled, sink) -> new offset
     mode: str = "whole"        # "lines" resumes at a byte offset, "rowid" at a stored row id, "whole" re-reads
-    stamp: Callable | None = None   # (path) -> (size, mtime) for databases that have a -wal file
+    stamp: Callable | None = None   # (path) -> (stamp text, size, newest mtime) for databases that have a -wal file
     after: Callable | None = None   # (ctx, descriptor, store, changed) -> None: cross-file adjustments
 
 
@@ -78,14 +78,20 @@ def family(name: str, files: Callable, mode: str = "whole", stamp=None, after=No
     return deco
 
 
-def db_stamp(path: str) -> tuple[int, float]:
-    """Size and newest modification time of a SQLite file together with its -wal."""
-    size, newest = 0, 0.0
+def db_stamp(path: str) -> tuple[str, int, float]:
+    """(stamp, size, newest mtime) of a SQLite file together with its -wal.
+
+    The stamp is one `inode:size:mtime_ns` per file, joined (as the Mac app's): each file on its own, because a sum of
+    two sizes and the newest of two times are the same for different pairs, and compared for equality, because a
+    clock set back or a restored backup moves a time backwards and is still a change."""
+    parts, size, newest = [], 0, 0.0
     for p in (path, path + "-wal"):
         try:
             st = os.stat(longpath(p))
         except OSError:
+            parts.append("-")
             continue
+        parts.append(f"{st.st_ino}:{st.st_size}:{st.st_mtime_ns}")
         size += st.st_size
         newest = max(newest, st.st_mtime)
-    return size, newest
+    return "|".join(parts), size, newest

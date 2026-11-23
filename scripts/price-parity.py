@@ -96,18 +96,19 @@ def main():
         swift_kept = json.loads(out.stdout)
         py = {"litellm": pricelib.litellm_rows(ll), "modelsdev": pricelib.modelsdev_rows(md)}
         for source, rows in py.items():
-            kept = pricelib.thin(source, rows)
-            a, b = set(kept), set(swift_kept[source])
-            print(f"{source}: python keeps {len(a)}, swift keeps {len(b)}, only-python {len(a - b)}, only-swift {len(b - a)}")
-            if a != b:
-                bad += 1
-                print("  e.g. only-python", sorted(a - b)[:5], "only-swift", sorted(b - a)[:5])
-            for rid in a & b:
-                sw, pr = swift_kept[source][rid], kept[rid]
-                flat = lambda r: [x for x in r[:5]] + [t for tier in r[5] for t in tier]
-                if len(flat(sw)) != len(flat(pr)) or not all(same(x, y, 2e-6) for x, y in zip(flat(sw), flat(pr))):  # ties of the 6th decimal round differently
+            kept, exact = pricelib.split(source, rows)
+            for label, mine, theirs in ((source, kept, swift_kept[source]), (source + " exact", exact, swift_kept.get(source + "-exact", {}))):
+                a, b = set(mine), set(theirs)
+                print(f"{label}: python keeps {len(a)}, swift keeps {len(b)}, only-python {len(a - b)}, only-swift {len(b - a)}")
+                if a != b:
                     bad += 1
-                    print("  row differs", source, rid, sw[:5], pr[:5])
+                    print("  e.g. only-python", sorted(a - b)[:5], "only-swift", sorted(b - a)[:5])
+                for rid in a & b:
+                    sw, pr = theirs[rid], mine[rid]
+                    flat = lambda r: [x for x in r[:5]] + [t for tier in r[5] for t in tier]
+                    if len(flat(sw)) != len(flat(pr)) or not all(same(x, y, 2e-6) for x, y in zip(flat(sw), flat(pr))):  # ties of the 6th decimal round differently
+                        bad += 1
+                        print("  row differs", label, rid, sw[:5], pr[:5])
     sys.exit(1 if bad else 0)
 
 

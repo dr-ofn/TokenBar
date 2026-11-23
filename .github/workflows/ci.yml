@@ -24,6 +24,8 @@ jobs:
       TOKENBAR_PRICES_PINNED: "1"
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Toolchain versions
         run: |
@@ -62,3 +64,31 @@ jobs:
 
       - name: Universal build (arm64 + x86_64)
         run: swift build -c release --product TokenBar --arch arm64 --arch x86_64
+
+      - name: "Release package gate (universal .app, no build paths, signature, zip)"
+        # Before this step the release package was only ever built and checked on a maintainer's Mac. The same build
+        # script runs here (it fails when the binary still names a path of the build machine), then the result is
+        # looked at independently, zipped as release.sh zips it, and opened again.
+        run: |
+          set -euo pipefail
+          scripts/build-app.sh --universal --no-test
+          APP="$PWD/dist/TokenBar.app"
+          BIN="$APP/Contents/MacOS/TokenBar"
+          VERSION="$(cat VERSION)"
+          archs="$(lipo -archs "$BIN" | tr ' ' '\n' | sort | paste -sd' ' -)"
+          echo "archs: $archs"
+          test "$archs" = "arm64 x86_64"
+          if LC_ALL=C grep -a -q -F -e "$PWD/" -e "$HOME/" "$BIN"; then
+            echo "error: the app binary names a path of this machine" >&2
+            exit 1
+          fi
+          test "$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")" = "$VERSION"
+          codesign --verify --strict --deep "$APP"
+          ZIPDIR="$RUNNER_TEMP/package-gate"
+          rm -rf "$ZIPDIR"
+          mkdir -p "$ZIPDIR/open"
+          ditto -c -k --keepParent "$APP" "$ZIPDIR/TokenBar-$VERSION.zip"
+          ditto -x -k "$ZIPDIR/TokenBar-$VERSION.zip" "$ZIPDIR/open"
+          codesign --verify --strict "$ZIPDIR/open/TokenBar.app"
+          test "$(plutil -extract CFBundleShortVersionString raw "$ZIPDIR/open/TokenBar.app/Contents/Info.plist")" = "$VERSION"
+          echo "package gate OK: TokenBar $VERSION ($archs)"

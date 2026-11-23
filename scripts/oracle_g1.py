@@ -139,13 +139,18 @@ def pi(o):
     agent = (o.HOME + "/" + agent[2:] if agent.startswith("~/") else agent) if agent else o.HOME + "/.pi/agent"
     for path in files(agent.rstrip("/") + "/sessions/**/*.jsonl"):
         for line in json_lines(path):
-            if '"usage":{' not in line or '"role":"toolResult"' in line or '"type":"session"' in line[:80]:
+            if '"usage"' not in line:
                 continue
             try:
                 row = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(row, dict) or row.get("type") == "session":
+                continue
             m = row.get("message") if isinstance(row.get("message"), dict) else row
+            # a `task` result repeats its subagents' usage; their own transcripts already count it
+            if m.get("role") == "toolResult" or row.get("role") == "toolResult":
+                continue
             u = m.get("usage") if isinstance(m, dict) else None
             if not isinstance(u, dict):
                 continue

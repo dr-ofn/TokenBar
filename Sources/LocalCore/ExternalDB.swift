@@ -22,12 +22,18 @@ final class ExternalDB {
         var openPath = path
         var query = immutable ? "immutable=1" : "mode=ro"
         if !immutable, Self.usesWAL(path) {
-            if let copy = Self.copyForReading(path) {
+            if (Self.stamp(path + "-wal")?.size ?? 0) == 0 {
+                // A WAL database with no `-wal` (or an empty one) holds everything in its main file: the tool's last
+                // connection checkpointed and closed it. A read-only connection cannot open such a file through a `-shm`
+                // it would have to make, and there is nothing newer to copy: read the file as it is.
+                query = "immutable=1"
+            } else if let copy = try Self.copyForReading(path) {
                 scratch = copy.folder
                 openPath = copy.database
             } else {
-                // Too large to copy, or the copy failed: read the main file in place. It sees no `-wal`, so the very
-                // last writes may be missing, but no file is written next to the tool's database.
+                // Too large to copy: read the main file in place. It sees no `-wal`, so the very last writes may be
+                // missing, but no file is written next to the tool's database. (A copy that failed is an error, not
+                // this: see `copyForReading`.)
                 query = "immutable=1"
             }
         }
@@ -68,8 +74,10 @@ final class ExternalDB {
 
     /// Copies `<db>` and `<db>-wal` into a new private folder. The two files are copied one after the other, so a
     /// writer that checkpoints in between would give a pair that does not fit: the copy is repeated (three tries) until
-    /// neither file changed while it ran. Nil when the pair is over `copyLimit` or cannot be copied.
-    private static func copyForReading(_ path: String) -> (folder: String, database: String)? {
+    /// neither file changed while it ran. Nil when the pair is over `copyLimit`. A copy that fails throws: the newest
+    /// rows live in the `-wal`, so reading the `.db` without it would count too little and call the file read. Only a
+    /// `-wal` that has just gone (a checkpoint removed it) is no error (the Windows build's rule too).
+    private static func copyForReading(_ path: String) throws -> (folder: String, database: String)? {
         sweepOldScratch()
         let fm = FileManager.default
         let folder = NSTemporaryDirectory() + scratchPrefix + UUID().uuidString
@@ -84,16 +92,30 @@ final class ExternalDB {
                 try? fm.removeItem(atPath: database)
                 try? fm.removeItem(atPath: database + "-wal")
                 try fm.copyItem(atPath: path, toPath: database)
-                if before.1 != nil { try? fm.copyItem(atPath: path + "-wal", toPath: database + "-wal") }
+                if before.1 != nil {
+                    do { try fm.copyItem(atPath: path + "-wal", toPath: database + "-wal") } catch where isNoSuchFile(error) {}
+                }
                 copied = true
                 if (stamp(path), stamp(path + "-wal")) == before { return (folder, database) }
             }
             // A pair that kept changing while it was copied: the last copy is the best there is (SQLite checks the
             // `-wal` frames against the file and ignores the ones that do not fit).
             if copied { return (folder, database) }
-        } catch {}
+        } catch {
+            try? fm.removeItem(atPath: folder)
+            throw StoreError(message: "\(path): kopyalanamadı (\(error.localizedDescription)); dosya okunmuş sayılmadı, sonraki taramada yeniden denenir")
+        }
         try? fm.removeItem(atPath: folder)
         return nil
+    }
+
+    /// True for "the file is not there": Cocoa's no-such-file codes, or ENOENT underneath.
+    private static func isNoSuchFile(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileNoSuchFileError || ns.code == NSFileReadNoSuchFileError { return true }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSPOSIXErrorDomain, underlying.code == Int(ENOENT) { return true }
+        return false
     }
 
     private static let sweepOnce: Void = {

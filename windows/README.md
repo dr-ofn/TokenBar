@@ -93,7 +93,7 @@ tokenbar-cli.exe --window 7d             a text report
 tokenbar-cli.exe --home D:\backup\me     read another home folder (no environment variable is followed;
                                          the index stays in your own %LOCALAPPDATA%, nothing is written into that
                                          folder; add --db FILE to keep its numbers out of your own index)
-tokenbar-cli.exe --refresh-prices        fetch the price lists now (a day's cache is respected)
+tokenbar-cli.exe --refresh-prices        (also --prices-now) fetch the price lists now (a day's cache is respected)
 tokenbar-cli.exe --offline --no-scan     report from the index, touch nothing
 ```
 

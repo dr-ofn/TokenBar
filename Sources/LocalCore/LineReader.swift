@@ -5,7 +5,7 @@ import Foundation
 /// Only complete lines are delivered, so a line still being written is picked up on
 /// the next pass. `endOffset` always points just past the last consumed newline.
 /// An unterminated final line is consumed only when `consumeTrailingLine` is set
-/// (the caller knows the file is settled).
+/// (the caller knows the file is settled) and it is complete JSON.
 public enum LineReader {
     public struct Result {
         public var endOffset: UInt64
@@ -71,14 +71,28 @@ public enum LineReader {
         if !stop, consumeTrailingLine, filled > 0 {
             var lineEnd = filled
             if lineEnd > 0, buffer[lineEnd - 1] == 0x0D { lineEnd -= 1 }
-            if lineEnd > 0 {
+            // A quiet file's last line is delivered only when it is whole JSON: a line cut in half by a writer (a crash,
+            // a suspended machine, a slow disk) must not be consumed, or the offset would move past it for good and the
+            // rest of it, written later, would be read from its middle.
+            let blank = !buffer[0..<lineEnd].contains { (byte: UInt8) -> Bool in byte != 0x20 && byte != 0x09 }
+            if blank {
+                consumedEnd = fileOffset + UInt64(filled)
+            } else if lineEnd > 0, Self.isWholeJSON(buffer, lineEnd) {
                 try buffer.withUnsafeBytes { raw in
                     _ = try body(UnsafeRawBufferPointer(start: raw.baseAddress!, count: lineEnd))
                 }
+                consumedEnd = fileOffset + UInt64(filled)
             }
-            consumedEnd = fileOffset + UInt64(filled)
         }
         return Result(endOffset: consumedEnd, bytesRead: totalRead)
+    }
+
+    /// True when the first `count` bytes are one complete JSON value (a half line is not, an object cut anywhere never is).
+    private static func isWholeJSON(_ buffer: [UInt8], _ count: Int) -> Bool {
+        buffer.withUnsafeBytes { raw in
+            let data = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: raw.baseAddress!), count: count, deallocator: .none)
+            return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil
+        }
     }
 
     /// One `pread`, retried while a signal interrupts it.

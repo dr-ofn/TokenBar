@@ -35,6 +35,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false      # nothing after this needs to push: the token is not left in .git/config
 
       - uses: actions/setup-python@v7
         with:
@@ -47,11 +49,22 @@ jobs:
 
       - name: Version
         id: version
+        # The tag name reaches the script as an environment variable, never pasted into its text: a tag is something a
+        # person chooses (`v1";calc;"` is a valid one) and an expression is expanded before PowerShell reads it.
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           $v = python -c "import tokenbar; print(tokenbar.__version__)"
           "version=$v" >> $env:GITHUB_OUTPUT
-          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$v") {
-            throw "tag ${{ github.ref_name }} does not match tokenbar.__version__ ($v)"
+          if ($env:REF_TYPE -eq "tag" -and $env:REF_NAME -ne "v$v") {
+            # A hyphenated tag (v9.0.1-rc1) is a pre-release: scripts/release-audit.sh lets it differ from the version
+            # files, so the build does too. Any other tag must be v + the version.
+            if ($env:REF_NAME -like "*-*") {
+              Write-Host "pre-release tag $($env:REF_NAME), tokenbar.__version__ is $v"
+            } else {
+              throw "tag $($env:REF_NAME) does not match tokenbar.__version__ ($v)"
+            }
           }
 
       - name: Workflow file is valid YAML
@@ -78,6 +91,33 @@ jobs:
           $j = Get-Content "$tmp\out.json" -Raw | ConvertFrom-Json
           if ($j.total -ne 34990 -or $j.calls -ne 72) { throw "unexpected totals: $($j.total) tokens, $($j.calls) calls" }
           "TokenBar.exe: $($j.total) tokens, $($j.calls) calls"
+
+      - name: Smoke test, TokenBar.exe console mode (output to a file handle and to a pipe, as a person at a prompt has it)
+        run: |
+          $tmp = Join-Path $env:RUNNER_TEMP "tb-console"
+          Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $tmp | Out-Null
+          python -c "import sys; sys.path.insert(0, 'tests'); from fixture_home import make_fixture_home; make_fixture_home(r'$tmp\home')"
+          $env:TOKENBAR_PRICES_PINNED = "1"
+          $env:TOKENBAR_OFFLINE = "1"
+          $exe = (Resolve-Path dist/TokenBar/TokenBar.exe).Path
+          # (1) `TokenBar.exe --json > file`: standard output is a file the process inherits; it has no console of its own.
+          $p = Start-Process -FilePath $exe -Wait -PassThru -RedirectStandardOutput "$tmp\redirected.json" -RedirectStandardError "$tmp\redirected.err" -ArgumentList @("--home", "$tmp\home", "--db", "$tmp\usage1.sqlite", "--window", "all", "--json")
+          if ($p.ExitCode -ne 0) { throw "TokenBar.exe > file exited with $($p.ExitCode): $(Get-Content "$tmp\redirected.err" -Raw)" }
+          $raw = Get-Content "$tmp\redirected.json" -Raw
+          if ([string]::IsNullOrWhiteSpace($raw)) { throw "TokenBar.exe --json > file wrote nothing" }
+          $j = $raw | ConvertFrom-Json
+          if ($j.total -ne 34990 -or $j.calls -ne 72) { throw "file: unexpected totals: $($j.total) tokens, $($j.calls) calls" }
+          # (2) `TokenBar.exe --json | ...`: a pipe (PowerShell waits for a windowed program only when its output is piped).
+          $text = & $exe --home "$tmp\home" --db "$tmp\usage2.sqlite" --window all --json | Out-String
+          if ([string]::IsNullOrWhiteSpace($text)) { throw "TokenBar.exe --json | ... wrote nothing" }
+          $j = $text | ConvertFrom-Json
+          if ($j.total -ne 34990 -or $j.calls -ne 72) { throw "pipe: unexpected totals: $($j.total) tokens, $($j.calls) calls" }
+          # (3) a flag it does not know is an error with a message, not a window that opens.
+          $p = Start-Process -FilePath $exe -Wait -PassThru -RedirectStandardError "$tmp\bogus.err" -ArgumentList @("--bogus-flag")
+          if ($p.ExitCode -eq 0) { throw "TokenBar.exe --bogus-flag exited 0" }
+          if ((Get-Content "$tmp\bogus.err" -Raw) -notmatch "unrecognized arguments") { throw "no error message for an unknown flag" }
+          "TokenBar.exe console mode: file and pipe both gave $($j.total) tokens, $($j.calls) calls"
 
       - name: Smoke test, TokenBar.exe tray mode (made-up home, own index, quits itself)
         run: |
@@ -106,7 +146,7 @@ jobs:
         run: |
           Get-ChildItem dist/TokenBar-Windows-*.zip | ForEach-Object { "$($_.Name) $([math]::Round($_.Length/1MB, 1)) MB" }
           Expand-Archive dist/TokenBar-Windows-*.zip -DestinationPath $env:RUNNER_TEMP/unzipped
-          foreach ($f in "TokenBar/TokenBar.exe", "TokenBar/tokenbar-cli.exe", "TokenBar/README.md", "TokenBar/LICENSE") {
+          foreach ($f in "TokenBar/TokenBar.exe", "TokenBar/tokenbar-cli.exe", "TokenBar/README.md", "TokenBar/LICENSE", "TokenBar/docs/HARNESSES.md") {
             if (-not (Test-Path "$env:RUNNER_TEMP/unzipped/$f")) { throw "missing in the zip: $f" }
           }
 
@@ -129,6 +169,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job that writes: `contents: write` for the release and nothing else (the workflow default is read-only),
+    # no checkout (no code of the repository runs here), and the tag name arrives as the TAG variable below.
     permissions:
       contents: write
     steps:

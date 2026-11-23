@@ -2,6 +2,7 @@
 # Builds a release artifact. Uploads and pushes NOTHING; it prints the command to publish at the end.
 #   scripts/release.sh VERSION [--universal]
 # Steps: scripts/check.sh -> scripts/build-app.sh -> dist/TokenBar-VERSION.zip (+ .sha256) -> dist/RELEASE_NOTES.md
+# First scripts/release-audit.sh: clean git tree, tag not made yet, HEAD pushed, VERSION = Windows version = CHANGELOG heading.
 # VERSION is stamped into the app (Info.plist) and must have a "## VERSION" section in CHANGELOG.md.
 # A pre-release VERSION (contains "-", e.g. 9.0.0-test) may lack one; it then gets a placeholder note.
 set -euo pipefail
@@ -26,6 +27,10 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
   exit 2
 fi
 PRERELEASE=0; [[ "$VERSION" == *-* ]] && PRERELEASE=1
+
+# Before anything is built: clean pushed tree, no tag yet, VERSION / Windows version / CHANGELOG all say $VERSION.
+# One audit (scripts/release-audit.sh); it names every problem, and a failed audit stops the release.
+scripts/release-audit.sh "$VERSION" || exit 1
 
 # Release notes first: fail early, before a slow build, when a real release has no changelog entry.
 mkdir -p dist

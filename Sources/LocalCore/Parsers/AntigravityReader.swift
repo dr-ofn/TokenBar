@@ -10,7 +10,8 @@ enum AntigravityReader {
     private static let impossibleCount: UInt64 = 1 << 40
 
     static func events(dbPath: String, conversation: String) throws -> [UsageEvent] {
-        let db = try ExternalDB(path: dbPath, immutable: true)
+        // Not immutable: a `-wal` beside the database holds the newest calls, and ExternalDB reads such a pair from a copy.
+        let db = try ExternalDB(path: dbPath, immutable: false)
         let models = try loadModels(from: db)
         return try loadEvents(from: db, models: models, conversation: conversation, dbPath: dbPath)
     }

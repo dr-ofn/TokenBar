@@ -360,8 +360,9 @@ def omp():
         all_lines = [ln.rstrip("\r\n") for ln in open(path, encoding="utf-8", errors="replace")]
         session = omp_session(path, all_lines[0] if all_lines else "")
         for line in all_lines:
-            # a `task` result repeats its subagents' usage; their own transcripts already count it
-            if '"usage":{' not in line or '"role":"toolResult"' in line:
+            # (the fields are read from the parsed message: spacing is free, and a "model" or "role" inside the content
+            # is not the message's own)
+            if '"usage"' not in line:
                 continue
             try:
                 o = json.loads(line)
@@ -370,7 +371,8 @@ def omp():
             if not isinstance(o, dict):
                 continue
             m = o.get("message") if isinstance(o.get("message"), dict) else o
-            if m.get("role") == "toolResult":
+            # a `task` result repeats its subagents' usage; their own transcripts already count it
+            if m.get("role") == "toolResult" or o.get("role") == "toolResult":
                 continue
             u = m.get("usage")
             if not isinstance(u, dict):

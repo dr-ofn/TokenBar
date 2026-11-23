@@ -78,14 +78,16 @@ final class PriceResolver: @unchecked Sendable {
         return out
     }
 
-    private func catalogHit(keys: [String], raw: String?) -> PriceEntry? {
+    private func catalogHit(keys: [String], raw: String?, only: PriceSource? = nil) -> PriceEntry? {
+        var catalogs: [Catalog] = ordered
+        if let only { catalogs = ordered.filter { (catalog: Catalog) -> Bool in catalog.source == only } }
         if let raw {
-            for catalog in ordered where catalog.source != .modelsdev {
+            for catalog in catalogs where catalog.source != .modelsdev {
                 if let hit = catalog.byID[raw] { return named(entry(catalog, hit, key: keys[0]), hit: hit, keys: keys) }
             }
         }
         for key in keys {
-            for catalog in ordered {
+            for catalog in catalogs {
                 if let hit = catalog.byKey[key] { return named(entry(catalog, hit, key: key), hit: hit, keys: keys) }
             }
         }
@@ -94,7 +96,13 @@ final class PriceResolver: @unchecked Sendable {
 
     /// The hand-made tables, the exact id, the normalised name.
     private func lookup(_ keys: ModelKeys, raw: String?) -> PriceEntry? {
-        if let e = tableHit(override, keys.ordered) { return e }
+        if let e = tableHit(override, keys.ordered) {
+            // A table row of kind `.openrouter` is a copy of an OpenRouter price pinned at the table's date: the live (or
+            // cached) OpenRouter catalogue, when it lists the model, is that price today. Stand-ins (`.near`) and prices
+            // published elsewhere (`.other`) are for models no catalogue lists, and stay as the table says.
+            if e.kind == .openrouter, let live = catalogHit(keys: keys.ordered, raw: raw, only: .openrouter) { return live }
+            return e
+        }
         return catalogHit(keys: keys.ordered, raw: raw)
     }
 
@@ -102,29 +110,62 @@ final class PriceResolver: @unchecked Sendable {
         PriceEntry(key: key, name: name, kind: .localFree, source: source, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, tiers: [])
     }
 
-    private func apply(alias: UserAliases.Target, key: String) -> PriceEntry? {
+    /// How many alias names may lead to one another (`{"as": "other-alias"}`): `a` to `b` to `c` to `d` to `e` is four steps and
+    /// is priced, a fifth is not.
+    private static let aliasDepth = 4
+
+    /// What an alias chain came to: a price, a target nothing lists (the logged name is then priced the ordinary way), or a
+    /// loop or a chain of too many steps, which prices nothing.
+    private enum AliasOutcome {
+        case priced(PriceEntry)
+        case missing
+        case loop
+    }
+
+    /// `own` is the alias name (as `UserAliases.targets` keys it) being applied, `visited` the alias names of the chain so
+    /// far, `steps` how many alias-to-alias steps led here.
+    private func apply(alias: UserAliases.Target, key: String, own: String, visited: Set<String>, steps: Int) -> AliasOutcome {
         switch alias {
         case .model(let target):
-            guard var hit = lookup(ModelNames.keys(target), raw: ModelNames.stripBrackets(target.trimmingCharacters(in: .whitespaces).lowercased())) else { return nil }
+            let targetKeys = ModelNames.keys(target)
+            var found: PriceEntry?
+            // The target may be another alias name: follow it. A name that was already met, or a fifth step, is a loop or a
+            // chain too long: unpriced. An alias that names itself (`"gpt-4o": "azure/gpt-4o"`) points at the catalogue.
+            if let k = targetKeys.ordered.first(where: { aliases.targets[$0] != nil }), k != own, let next = aliases.targets[k] {
+                if visited.contains(k) || steps >= PriceResolver.aliasDepth { return .loop }
+                switch apply(alias: next, key: targetKeys.key1, own: k, visited: visited.union([k]), steps: steps + 1) {
+                case .priced(let entry): found = entry
+                case .loop: return .loop
+                case .missing: break
+                }
+            }
+            guard var hit = found ?? lookup(targetKeys, raw: ModelNames.stripBrackets(target.trimmingCharacters(in: .whitespaces).lowercased())) else { return .missing }
             hit.source = "kullanıcı takma adı: \(key) → \(target) (\(hit.source))"
             hit.kind = .alias
-            return hit
+            return .priced(hit)
         case .free:
-            return free(key: key, name: key, source: "kullanıcı takma adı: \(key) → ücretsiz")
+            return .priced(free(key: key, name: key, source: "kullanıcı takma adı: \(key) → ücretsiz"))
         case .rates(let input, let output, let read, let write, let name, let note, let kind):
-            let w = write > 0 ? write : input
-            return PriceEntry(key: key, name: name ?? key, kind: kind,
-                              source: "kullanıcı takma adı: \(key) → elle yazılmış fiyat" + (note.map { " (\($0))" } ?? ""),
-                              input: input, output: output, cacheRead: read > 0 ? read : input, cacheWrite: w, cacheWrite1h: w, tiers: [])
+            let w = write ?? input
+            return .priced(PriceEntry(key: key, name: name ?? key, kind: kind,
+                                      source: "kullanıcı takma adı: \(key) → elle yazılmış fiyat" + (note.map { " (\($0))" } ?? ""),
+                                      input: input, output: output, cacheRead: read ?? input, cacheWrite: w, cacheWrite1h: w, tiers: []))
         }
     }
 
     private func compute(provider: String, model: String) -> PriceEntry? {
+        // No model has a name this long: such a line is not a model, and normalising it is time spent for nothing.
+        if model.count > ModelNames.maxNameLength { return nil }
         let keys = ModelNames.keys(model)
         let raw = ModelNames.stripBrackets(model.trimmingCharacters(in: .whitespaces).lowercased())
         let local = ModelNames.isLocalProvider(provider, extra: aliases.localProviders) || keys.quantised
-        if let k = keys.ordered.first(where: { aliases.targets[$0] != nil }), let alias = aliases.targets[k],
-           let hit = apply(alias: alias, key: keys.key1) { return hit }
+        if let k = keys.ordered.first(where: { aliases.targets[$0] != nil }), let alias = aliases.targets[k] {
+            switch apply(alias: alias, key: keys.key1, own: k, visited: [k], steps: 0) {
+            case .priced(let hit): return hit
+            case .loop: return nil
+            case .missing: break
+            }
+        }
         if var hit = lookup(keys, raw: raw) {
             if local {
                 hit.kind = .localCloud
@@ -141,7 +182,13 @@ final class PriceResolver: @unchecked Sendable {
             let proxy = ModelNames.keys(name)
             // An alias for the shorter name covers its account-numbered or effort-marked variants too.
             var found: PriceEntry?
-            if let k = proxy.ordered.first(where: { aliases.targets[$0] != nil }), let alias = aliases.targets[k] { found = apply(alias: alias, key: proxy.key1) }
+            if let k = proxy.ordered.first(where: { aliases.targets[$0] != nil }), let alias = aliases.targets[k] {
+                switch apply(alias: alias, key: proxy.key1, own: k, visited: [k], steps: 0) {
+                case .priced(let entry): found = entry
+                case .loop: return nil
+                case .missing: break
+                }
+            }
             if var hit = found ?? lookup(proxy, raw: nil) {
                 hit.kind = .approximate
                 hit.source = "yaklaşık: \(keys.key2) → \(name) (\(hit.source))"

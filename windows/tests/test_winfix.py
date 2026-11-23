@@ -530,6 +530,7 @@ def test_opencode_watermark_survives_a_wal_checkpoint_shrinking_the_file(home):
     fam.read = lambda ctx, d, p, offset, limit, settled, sink: (got.append(offset), orig(ctx, d, p, offset, limit, settled, sink))[1]
     try:
         home.store.db.execute("UPDATE files SET size = size + 4096, mtime = 0 WHERE path = ?", (path,))   # it was bigger before
+        home.store.db.execute("UPDATE meta SET v = 'bigger-before' WHERE k = ?", ("dbstamp:" + path,))     # (the stamp is what says "changed")
         home.scan()
     finally:
         fam.read = orig

@@ -4,7 +4,11 @@ import LocalCore
 // tokenbar-cli: index every harness log on this Mac and print a report.
 //
 //   tokenbar-cli [--window 1h|5h|24h|7d|30d|all] [--db PATH] [--home DIR] [--rebuild] [--no-scan] [--json]
+//                [--offline] [--prices-now]
 //   tokenbar-cli --index     show index info (file count, event count, last scan)
+//
+//   --offline      never touch the network (what TOKENBAR_OFFLINE=1 says, too)
+//   --prices-now   fetch the price catalogues now, whatever the one-day wait says (alias: --refresh-prices, as on Windows)
 
 var windowArg = "24h"
 var dbPath = UsageStore.defaultPath
@@ -13,6 +17,8 @@ var rebuild = false
 var scan = true
 var jsonOut = false
 var indexOnly = false
+var offline = false
+var pricesNow = false
 
 var args = CommandLine.arguments.dropFirst().makeIterator()
 while let a = args.next() {
@@ -24,8 +30,10 @@ while let a = args.next() {
     case "--no-scan": scan = false
     case "--json": jsonOut = true
     case "--index": indexOnly = true
+    case "--offline": offline = true
+    case "--prices-now", "--refresh-prices": pricesNow = true
     case "-h", "--help":
-        print("usage: tokenbar-cli [--window 1h|5h|24h|7d|30d|all] [--db PATH] [--home DIR] [--rebuild] [--no-scan] [--json] | --index")
+        print("usage: tokenbar-cli [--window 1h|5h|24h|7d|30d|all] [--db PATH] [--home DIR] [--rebuild] [--no-scan] [--json] [--offline] [--prices-now] | --index")
         exit(0)
     default:
         print("bilinmeyen arg: \(a)")
@@ -57,6 +65,20 @@ do {
     if rebuild { try store.reset() }
     // This home's own price names too (its model-aliases.json), not the Mac user's.
     PriceBook.useHome(home)
+    if offline { PriceBook.offline = true }
+    if pricesNow {
+        // One anonymous GET per catalogue, only when asked; offline (the flag or TOKENBAR_OFFLINE) it asks nothing.
+        final class Box: @unchecked Sendable { var report = PriceRefreshReport() }
+        let box = Box(), done = DispatchSemaphore(value: 0)
+        Task.detached {
+            box.report = await PriceBook.refreshNow()
+            done.signal()
+        }
+        done.wait()
+        let r = box.report
+        FileHandle.standardError.write(Data((L10n.t("fiyatlar: ", "prices: ")
+            + "\(r.updated.count) updated, \(r.notModified.count) not modified, \(r.fresh.count) fresh, \(r.failed.count) failed, \(r.skipped.count) skipped\n").utf8))
+    }
     // Names and colours of the tools in this home's custom-sources.json, scan or not.
     HarnessCatalog.load(home: home).register()
 

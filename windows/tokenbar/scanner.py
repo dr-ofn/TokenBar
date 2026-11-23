@@ -95,6 +95,7 @@ class Scanner:
         stat = SourceStat(d.name if d.prefix not in ("qwenc", "kilo", "kilocode") else f"{d.name} ({d.prefix})")
         problems = []
         records = self.store.file_records()
+        stamps = self.store.db_stamps() if fam.stamp else {}
         pending, pending_events = [], 0
         now = time.time()
 
@@ -117,16 +118,22 @@ class Scanner:
             if st is None or not os.path.isfile(longpath(path)):
                 continue
             size, mtime = st.st_size, st.st_mtime
+            stamp = None
             if fam.stamp:
-                size, mtime = fam.stamp(path)
+                stamp, size, mtime = fam.stamp(path)
             inode = st.st_ino
             old = records.get(path)
             same = old is not None and old.inode == inode
-            if same and old.mtime >= mtime and old.size == size and (fam.mode != "lines" or old.offset >= size):
+            if stamp is not None:
+                # A database: the stamp of the .db and of its -wal, each on its own, compared for equality. An index
+                # that kept none (made by 9.0.0) reads each database once, which is safe: its rows have their keys.
+                if old is not None and stamps.get(path) == stamp:
+                    continue
+            elif same and old.mtime >= mtime and old.size == size and (fam.mode != "lines" or old.offset >= size):
                 continue
             verdict = self._bad.get(path)
             if verdict is not None:
-                if verdict[:3] == (inode, size, mtime):
+                if verdict[:3] == (inode, size, stamp or mtime):
                     problems.append(verdict[3])      # named again, without reading the file again
                     continue
                 del self._bad[path]
@@ -141,7 +148,7 @@ class Scanner:
             try:
                 end = fam.read(self.ctx, d, path, offset, size, abs(now - mtime) > SETTLE_SECONDS, sink)
             except BadFile as e:       # quiet and still unreadable: named on every pass, never recorded (the Mac app's way)
-                self._bad[path] = (inode, size, mtime, str(e))
+                self._bad[path] = (inode, size, stamp or mtime, str(e))
                 problems.append(str(e))
                 continue
             except Retry:              # not finished (or gone) a moment ago: unrecorded, read again next pass, no complaint
@@ -154,7 +161,7 @@ class Scanner:
             problems += sink.issues
             if end is None:            # could not be read right now: left unrecorded, tried again next pass
                 continue
-            record = None if sink.retry else FileRecord(path, inode, size, mtime, int(end))
+            record = None if sink.retry else FileRecord(path, inode, size, mtime, int(end), stamp)
             pending.append((record, sink.events, (sink.retire_keys, sink.retire_prefixes), sink.costs))
             stat.files_read += 1
             stat.events += len(sink.events)

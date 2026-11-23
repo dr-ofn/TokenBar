@@ -42,6 +42,16 @@ public enum ModelNames {
     static let localProviders: Set<String> = ["ollama", "lmstudio", "lm-studio", "mlx", "omlx", "llama.cpp", "llamacpp", "llama-cpp",
                                               "local", "localhost", "jan", "gpt4all", "koboldcpp", "llamafile"]
 
+    /// The longest model name that is normalised. The folding steps below walk a name more than once, so a name of
+    /// hundreds of thousands of characters (a corrupt log line) would hold a scan for minutes; no real name is near this.
+    static let maxNameLength = 256
+
+    /// The first `maxNameLength` characters of a name.
+    static func capped(_ model: String) -> String {
+        guard model.utf8.count > maxNameLength else { return model }
+        return String(model.prefix(maxNameLength))
+    }
+
     /// `key1` alone: what a catalogue's ids are indexed by.
     static func key1(_ model: String) -> String { fold(identity(clean(model))) }
 
@@ -124,23 +134,29 @@ public enum ModelNames {
         return out
     }
 
-    /// `[1m]`, `(high)` and the like at the end.
+    /// `[1m]`, `(high)` and the like at the end. One backward pass over the characters (a name of many groups is not
+    /// copied once per group).
     static func stripBrackets(_ input: String) -> String {
-        var s = input.trimmingCharacters(in: .whitespaces)
-        while let last = s.last, last == "]" || last == ")" {
+        let chars = Array(input.trimmingCharacters(in: .whitespaces))
+        var end = chars.count
+        func isSpace(_ c: Character) -> Bool { c.unicodeScalars.allSatisfy { CharacterSet.whitespaces.contains($0) } }
+        while end > 0, chars[end - 1] == "]" || chars[end - 1] == ")" {
+            let last = chars[end - 1]
             let open: Character = last == "]" ? "[" : "("
-            let body = s.dropLast()
             // The first opener after the last closer: what `\[[^\]]*\]$` would take.
-            let from = body.lastIndex(of: last).map { body.index(after: $0) } ?? body.startIndex
-            guard let opener = body[from...].firstIndex(of: open) else { break }
-            s = String(body[..<opener]).trimmingCharacters(in: .whitespaces)
+            var from = 0
+            var i = end - 2
+            while i >= 0 { if chars[i] == last { from = i + 1; break }; i -= 1 }
+            guard from <= end - 2, let opener = chars[from..<(end - 1)].firstIndex(of: open) else { break }
+            end = opener
+            while end > 0, isSpace(chars[end - 1]) { end -= 1 }
         }
-        return s
+        return end == chars.count ? String(chars) : String(chars[0..<end])
     }
 
     /// Lowercase, no brackets, no provider path, no Bedrock region or vendor prefix.
     static func clean(_ model: String) -> String {
-        var s = stripBrackets(model.trimmingCharacters(in: .whitespaces).lowercased())
+        var s = stripBrackets(capped(model).trimmingCharacters(in: .whitespaces).lowercased())
         if let slash = s.lastIndex(of: "/") { s = String(s[s.index(after: slash)...]) }
         if let n = vendorPrefixLength(s) { return String(s.dropFirst(n)) }
         if let n = regionPrefixLength(s) { return String(s.dropFirst(n)) }

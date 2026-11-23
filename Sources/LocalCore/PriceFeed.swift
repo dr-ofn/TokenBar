@@ -84,6 +84,8 @@ public struct PriceRefreshReport: Sendable {
     public var failed: [PriceSource: String] = [:]
     public var skipped: [PriceSource] = []
 
+    public init() {}
+
     /// The cache files changed (new rows or a new timestamp).
     public var changed: Bool { !updated.isEmpty || !notModified.isEmpty }
 }
@@ -113,7 +115,8 @@ public final class PriceFeed: @unchecked Sendable {
         }
     }
 
-    static let schema = 1
+    /// 1 (9.0.0) kept no exact-id rows a lookup could still reach: such a file is read, never trusted for an ETag.
+    static let schema = 2
     public let config: Config
 
     public init(_ config: Config = Config()) { self.config = config }
@@ -136,7 +139,12 @@ public final class PriceFeed: @unchecked Sendable {
     struct CacheFile {
         var etag: String?
         var fetched: Date
+        /// The row the index picks for each key.
         var rows: [String: CatalogRow]
+        /// Rows only an exact id reaches (see `Catalog.split`); none in a cache file an older TokenBar wrote.
+        var exact: [String: CatalogRow] = [:]
+        /// A file under `PriceFeed.schema` is read but asked for again, in full.
+        var schema = PriceFeed.schema
     }
 
     func cacheURL(_ source: PriceSource) -> URL { config.cacheDirectory.appendingPathComponent(source.cacheFileName) }
@@ -146,19 +154,26 @@ public final class PriceFeed: @unchecked Sendable {
     func readCache(_ source: PriceSource) -> CacheFile? {
         guard let data = try? Data(contentsOf: cacheURL(source)),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              (root["schema"] as? Int) == PriceFeed.schema, (root["source"] as? String) == source.rawValue,
-              let fetched = root["fetched"] as? Double,
-              let rows = PriceParsers.compactRows(root["rows"]) else { return nil }
-        return CacheFile(etag: root["etag"] as? String, fetched: Date(timeIntervalSince1970: fetched), rows: rows)
+              let schema = root["schema"] as? Int, schema == 1 || schema == PriceFeed.schema, (root["source"] as? String) == source.rawValue,
+              let fetched = root["fetched"] as? Double else { return nil }
+        let rows = PriceParsers.compactRows(root["rows"]) ?? [:]
+        let exact = PriceParsers.compactRows(root["exact"]) ?? [:]
+        // A catalogue of routes alone has no winner, but its exact rows are a cache.
+        guard !rows.isEmpty || !exact.isEmpty else { return nil }
+        return CacheFile(etag: root["etag"] as? String, fetched: Date(timeIntervalSince1970: fetched), rows: rows, exact: exact, schema: schema)
     }
 
-    /// The rows the index would pick: all a lookup can ever return, so the cache stays small and loads fast.
+    /// What a lookup can return: the row the index picks for each key and the rows an exact id reaches with a price of
+    /// their own (`Catalog.split`), so the cache stays small and loads fast and prices every name as the whole catalogue did.
     func writeCache(_ source: PriceSource, rows: [String: CatalogRow], etag: String?, fetched: Date) {
-        let kept = Catalog(source: source, rows: rows).byKey.values
-        var compact: [String: [Any]] = [:]
-        for hit in kept { compact[hit.id] = hit.row.compact }
+        let split = Catalog.split(source: source, rows: rows)
+        writeCache(source, winners: split.winners, exact: split.exact, etag: etag, fetched: fetched)
+    }
+
+    func writeCache(_ source: PriceSource, winners: [String: CatalogRow], exact: [String: CatalogRow], etag: String?, fetched: Date) {
         var root: [String: Any] = ["schema": PriceFeed.schema, "source": source.rawValue, "url": source.url.absoluteString,
-                                   "fetched": fetched.timeIntervalSince1970, "rows": compact]
+                                   "fetched": fetched.timeIntervalSince1970, "rows": winners.mapValues { (row: CatalogRow) -> [Any] in row.compact }]
+        if !exact.isEmpty { root["exact"] = exact.mapValues { (row: CatalogRow) -> [Any] in row.compact } }
         if let etag { root["etag"] = etag }
         writeJSON(root, to: cacheURL(source))
     }
@@ -186,7 +201,7 @@ public final class PriceFeed: @unchecked Sendable {
         let embedded = PriceCatalogs.embedded
         for source in PriceSource.allCases {
             if let cache = readCache(source) {
-                out.set(source, rows: cache.rows, origin: .cache(cache.fetched))
+                out.set(source, rows: cache.rows, exact: cache.exact, origin: .cache(cache.fetched))
             } else if let catalog = embedded.catalogs[source], let origin = embedded.origins[source] {
                 out.catalogs[source] = catalog
                 out.origins[source] = origin
@@ -223,7 +238,8 @@ public final class PriceFeed: @unchecked Sendable {
             let now = config.now()
             let cache = readCache(source)
             // A copy stamped in the future (the clock was set back) is not fresh: its age would be negative.
-            if let cache, case let age = now.timeIntervalSince(cache.fetched), age >= 0, age < config.ttl {
+            // A schema 1 copy lacks the exact rows: it is read, but the next pass asks for the whole catalogue (no ETag).
+            if let cache, cache.schema >= PriceFeed.schema, case let age = now.timeIntervalSince(cache.fetched), age >= 0, age < config.ttl {
                 report.fresh.append(source)
                 continue
             }
@@ -232,10 +248,11 @@ public final class PriceFeed: @unchecked Sendable {
                 continue
             }
             do {
-                switch try await config.fetcher.fetch(source, etag: cache?.etag) {
+                let sendEtag = cache.flatMap { (c: CacheFile) -> String? in c.schema >= PriceFeed.schema ? c.etag : nil }
+                switch try await config.fetcher.fetch(source, etag: sendEtag) {
                 case .notModified:
-                    guard let cache else { throw PriceFeedError.status(304) }
-                    writeCache(source, rows: cache.rows, etag: cache.etag, fetched: now)
+                    guard let cache, cache.schema >= PriceFeed.schema else { throw PriceFeedError.status(304) }
+                    writeCache(source, winners: cache.rows, exact: cache.exact, etag: cache.etag, fetched: now)
                     report.notModified.append(source)
                 case .ok(let data, let etag):
                     guard let rows = PriceParsers.rows(source, data) else {

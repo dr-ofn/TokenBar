@@ -44,10 +44,10 @@ The dollar figure is an **API-equivalent cost, not your actual bill.** It answer
 
 ### Price sources
 
-[OpenRouter](https://openrouter.ai/docs/api-reference/list-available-models), [LiteLLM](https://github.com/BerriAI/litellm) and [models.dev](https://models.dev), plus a small hand-checked table for models none of them lists. Every breakdown shows which source and slug priced a model.
+[OpenRouter](https://openrouter.ai/docs/api-reference/list-available-models), [LiteLLM](https://github.com/BerriAI/litellm) and [models.dev](https://models.dev), plus a small hand-checked table for models none of them lists (a table row copied from OpenRouter gives way to the live OpenRouter row). Every breakdown shows which source and slug priced a model.
 
 - LiteLLM and models.dev (both MIT) ship inside the app as a snapshot, so the first launch already has prices. OpenRouter is read from the network only.
-- The app refreshes each catalogue **at most once a day**: one anonymous, static GET per catalogue, with a 24 hour cache and `If-None-Match`, so an unchanged list is not downloaded again. Nothing about you is sent. See [Privacy](#privacy).
+- The app refreshes each catalogue **at most once a day**, at launch and again while it keeps running: one anonymous, static GET per catalogue, with a 24 hour cache and `If-None-Match`, so an unchanged list is not downloaded again. Nothing about you is sent. See [Privacy](#privacy).
 - **Offline:** set `TOKENBAR_OFFLINE=1`, or switch on **Offline** in the menu. The app then uses its cached or built-in prices and makes no network call at all. **Update prices** in the same menu refreshes on demand.
 - Cached copies live in `~/Library/Caches/TokenBar`.
 
@@ -118,7 +118,7 @@ TokenBar also runs on Windows 10 and 11 as a system tray app: the same tools, th
 swift run -c release tokenbar-cli --window all --json
 ```
 
-`--window` takes `1h`, `5h`, `24h`, `7d`, `30d` or `all`. Without `--json` it prints a text report. `tokenbar-cli --help` lists the rest. After `swift build -c release` the binary is `.build/release/tokenbar-cli`.
+`--window` takes `1h`, `5h`, `24h`, `7d`, `30d` or `all`. Without `--json` it prints a text report. `--offline` never touches the network and `--prices-now` fetches the price catalogues now (`--refresh-prices` is the same flag). `tokenbar-cli --help` lists the rest. After `swift build -c release` the binary is `.build/release/tokenbar-cli`.
 
 `TOKENBAR_OPEN=dashboard` opens the dashboard when the app launches.
 

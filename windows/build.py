@@ -17,7 +17,7 @@ from tokenbar import __version__  # noqa: E402
 
 DIST = os.path.join(HERE, "dist")
 APP = os.path.join(DIST, "TokenBar")
-EXTRAS = ["README.md", "README.tr.md", "LICENSE"]
+EXTRAS = ["README.md", "README.tr.md", "LICENSE", os.path.join("docs", "HARNESSES.md")]   # the README links to the last one
 
 
 def make_icon() -> str:
@@ -43,15 +43,25 @@ def make_zip(app: str = APP, out: str | None = None) -> str:
     return out
 
 
+def copy_extras(app: str = APP, source: str = HERE) -> list[str]:
+    """The licence and the documents next to the exe (the README's links must work inside the zip). Returns what was copied."""
+    copied = []
+    for name in EXTRAS:
+        src = os.path.join(source, name)
+        if os.path.exists(src):
+            dst = os.path.join(app, name)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy(src, dst)
+            copied.append(name)
+    return copied
+
+
 def main(argv: list[str]) -> int:
     if "--zip-only" not in argv:
         make_icon()
         subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--distpath", DIST,
                         "--workpath", os.path.join(HERE, "build", "pyi"), "TokenBar.spec"], cwd=HERE, check=True)
-    for name in EXTRAS:
-        src = os.path.join(HERE, name)
-        if os.path.exists(src):
-            shutil.copy(src, os.path.join(APP, name))
+    copy_extras()
     print(make_zip())
     return 0
 

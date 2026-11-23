@@ -1,5 +1,33 @@
 # Changelog
 
+## 9.0.1 — 2026-11-23
+Patch release: fixes for defects an independent review found in 9.0.0, counting accuracy first.
+
+- **Half-written lines.** A log line a tool was still writing when TokenBar read the file could be taken as finished and lost; a quiet half line is now left for the next read and counted once it is complete.
+- **Pi and oh-my-pi.** Lines are read as JSON instead of matched as text, so spaced JSON, a content field named `model` and nested tool results no longer hide or invent calls.
+- **Codex: model named later.** When Codex names the model after the first call of a session, that call is now given the model instead of staying "unknown" (and unpriced).
+- **Prices: the live catalogue wins.** A model that OpenRouter lists live is priced from that row, not from TokenBar's small hand-checked table; nine table rows that had drifted were corrected, and `update-prices.py --check-drift` reports any new drift.
+- **Prices: cache keeps exact ids.** The daily price cache now keeps every catalogue's exact model ids, so a name priced right after a fresh download is priced the same way from the cache the next day. Tiered prices (for example above 200K tokens) survive the cache too.
+- **Prices: aliases.** A `cacheRead` price of 0 in `model-aliases.json` is a real price (free cache reads), not "missing"; an alias may point to another alias (up to four steps, and a loop is left unpriced rather than hanging).
+- **Prices: daily refresh while running.** An app left open for days asks for new prices again (it checked only at launch), and going back **Online** refreshes at once.
+- **Very long model names.** A model name of tens of thousands of characters could stall pricing; names over 256 characters are left unpriced and the rest are priced in linear time.
+- **Compressed logs (`.zst`).** Unpacking stops at 64 MiB for one line and 4 GiB in all; an archive over the limit is named as a problem and not unpacked again.
+- **Antigravity.** The newest calls still waiting in the database's `-wal` file are counted. Antigravity, Zed and opencode databases whose `-wal` file is gone open without an error.
+- **Crush and Devin dates.** Times written as ISO text show on the right day instead of 1 January 1970. Calls that 9.0.0 already stored as 1970 (Crush, Devin, Copilot Chat, Cline) are read once more after the update and get their real date, on the Mac and on Windows, without being counted twice.
+- **Databases next to a `-wal` file.** A `-wal` file that cannot be copied is now a named problem and the database is read again later, instead of being marked as read without its newest calls. When a tool writes to Antigravity or Zed while TokenBar reads it, the new calls are picked up at the next pass. On Windows a cleanly closed database (no `-wal`, or an empty one) is read in place instead of failing.
+- **Codex after the update.** A session 9.0.0 had read before its model was named gets the model the first time 9.0.1 reads it.
+- **Prices: same answer from the cache.** A model priced after a fresh download is priced exactly the same from the cache (route variants such as `:nitro` and ids that differ only in case no longer shift to another catalogue). The cache format moved to version 2: the first refresh after the update downloads each catalogue in full once.
+- **Prices: aliases the same on both systems.** Windows now follows an alias chain of up to four steps like the Mac, an alias loop is unpriced on both, and a `null` price in `model-aliases.json` or in a catalogue tier means "not given" instead of $0.
+- **Command line.** `--offline`, `--prices-now` and `--refresh-prices` (the Windows spelling) are accepted.
+- **Windows: Claude Code totals.** A run whose start time carried a fraction of a second was counted twice, and a cost record with no session id added a phantom adjustment. A run is now whole seconds and such a record is skipped, as on the Mac. An index made by 9.0.0 is repaired the first time 9.0.1 starts.
+- **Windows: databases with a `-wal` file (opencode, Antigravity, Zed, Crush, Goose, Devin).** When TokenBar's private read-only copy of such a database could not be opened, it quietly read the `.db` without its `-wal` and marked the file as read, so the newest calls were never counted. It now reports the problem and reads the file again.
+- **Windows: changes in those databases are no longer missed.** The `.db` and the `-wal` each get their own stamp (inode, size, modification time to the nanosecond), compared for equality, so a restored backup, a clock set back or two files that traded times are read again. Each database is read once more after the update, without counting anything twice.
+- **Windows: Codex, Qwen and the other readers.** A forked Codex session whose first record had no id no longer loses its calls; a token record without a time is no call. A Qwen usage file that was locked at the wrong moment is named and caught up at the next pass instead of leaving its usage uncounted. Copilot Chat and Cline CLI times written as ISO dates are read; Cline provider names that start with `/` are right; Crush, Goose, Zed and Qwen details match the Mac.
+- **Windows: same rules as the Mac.** Pi and oh-my-pi lines are read as JSON; a Codex call written before its model was named gets the model; `.zst` logs have the same 64 MiB / 4 GiB limits; `--prices-now` is accepted and, like on the Mac, skips the one-day wait. On both systems a later read of a call without a model name no longer replaces the model it already had.
+- **Windows: very long folders.** Log files below a path of 260 characters or more are found even when the folder you point TokenBar at is short.
+- **Windows: window and tray.** The window no longer stops updating after a single internal error, a slow earlier period can no longer overwrite the period you picked, the tray tip and an open window refresh when new prices arrive, a failed price fetch is retried within an hour (not six), the **⋯** menu no longer leaks memory each time it opens, and `TokenBar.exe` with an unknown option prints an error instead of opening the window.
+- **Release.** `scripts/release.sh` first audits the repository: clean and pushed, the tag not made yet, and `VERSION`, the Windows version and the changelog all agree. CI now builds and checks the macOS release package (universal build, no build paths in the binary, signature, zip) and the Windows console mode; the Windows zip includes `docs/HARNESSES.md`; the release tag name no longer reaches a script as text.
+
 ## 9.0.0 — 2026-11-23
 First open-source release (MIT).
 

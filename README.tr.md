@@ -44,10 +44,10 @@ Dolar rakamı **API eşdeğeridir, gerçek faturan değildir.** "Bu token'lar AP
 
 ### Fiyat kaynakları
 
-[OpenRouter](https://openrouter.ai/docs/api-reference/list-available-models), [LiteLLM](https://github.com/BerriAI/litellm) ve [models.dev](https://models.dev); bir de hiçbirinin listelemediği modeller için elle denetlenmiş küçük bir tablo. Dökümde her modelin hangi kaynak ve slug'la fiyatlandığı yazar.
+[OpenRouter](https://openrouter.ai/docs/api-reference/list-available-models), [LiteLLM](https://github.com/BerriAI/litellm) ve [models.dev](https://models.dev); bir de hiçbirinin listelemediği modeller için elle denetlenmiş küçük bir tablo (OpenRouter'dan kopyalanmış bir tablo satırı, canlı OpenRouter satırına yol verir). Dökümde her modelin hangi kaynak ve slug'la fiyatlandığı yazar.
 
 - LiteLLM ve models.dev (ikisi de MIT) uygulamanın içinde anlık görüntü olarak gelir; ilk açılışta fiyatlar hazırdır. OpenRouter yalnızca ağdan okunur.
-- Uygulama her kataloğu **günde en çok bir kez** yeniler: katalog başına anonim, statik bir GET; 24 saat önbellek ve `If-None-Match` ile, değişmeyen liste yeniden indirilmez. Senin hakkında hiçbir şey gönderilmez. Bkz. [Gizlilik](#gizlilik).
+- Uygulama her kataloğu **günde en çok bir kez** yeniler, açılışta ve açık kaldığı sürece: katalog başına anonim, statik bir GET; 24 saat önbellek ve `If-None-Match` ile, değişmeyen liste yeniden indirilmez. Senin hakkında hiçbir şey gönderilmez. Bkz. [Gizlilik](#gizlilik).
 - **Çevrimdışı:** `TOKENBAR_OFFLINE=1` ver ya da menüde **Çevrimdışı**'nı aç. Uygulama önbellekteki ya da gömülü fiyatları kullanır, hiç ağ çağrısı yapmaz. Aynı menüdeki **Fiyatları güncelle** istediğin an yeniler.
 - Önbellek kopyaları `~/Library/Caches/TokenBar` içindedir.
 
@@ -118,7 +118,7 @@ TokenBar Windows 10 ve 11'de sistem tepsisi uygulaması olarak da çalışır: a
 swift run -c release tokenbar-cli --window all --json
 ```
 
-`--window` değerleri: `1h`, `5h`, `24h`, `7d`, `30d`, `all`. `--json` olmadan metin raporu basar. Gerisi için `tokenbar-cli --help`. `swift build -c release`'ten sonra ikili dosya `.build/release/tokenbar-cli`'dir.
+`--window` değerleri: `1h`, `5h`, `24h`, `7d`, `30d`, `all`. `--json` olmadan metin raporu basar. `--offline` ağa hiç çıkmaz, `--prices-now` fiyat kataloglarını hemen indirir (`--refresh-prices` aynı bayraktır). Gerisi için `tokenbar-cli --help`. `swift build -c release`'ten sonra ikili dosya `.build/release/tokenbar-cli`'dir.
 
 `TOKENBAR_OPEN=dashboard` uygulama açılırken panoyu da açar.
 

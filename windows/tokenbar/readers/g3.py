@@ -51,11 +51,20 @@ def read_crush(ctx, d, path, offset, limit, settled, sink):
             sessions = extdb.query(con, "select id, prompt_tokens, completion_tokens, updated_at, created_at from sessions "
                                         "where prompt_tokens > 0 or completion_tokens > 0")
             for sid, prompt, completion, updated, created in sessions:
-                latest = extdb.query(con, "select model" + (", provider" if has_provider else ", null") +
-                                     " from messages where session_id = ? and role = 'assistant' "
-                                     "and model is not null and model != '' order by created_at desc, rowid desc limit 1", (sid,))
-                model, provider = (latest[0] if latest else (None, None))
-                sink.add("crush:" + str(sid), _when(updated or created), provider or "crush", model or "unknown",
+                if sid is None or str(sid) == "":          # a session with no identity has no key (the Mac reader skips it)
+                    continue
+
+                def latest(column):
+                    # the newest assistant message that names one (the model and the provider are looked up apart, as on Mac)
+                    got = extdb.query(con, f"select {column} from messages where session_id = ? and role = 'assistant' "
+                                           f"and {column} is not null and {column} != '' order by created_at desc, rowid desc limit 1", (sid,))
+                    return got[0][0] if got else None
+                model = latest("model")
+                provider = latest("provider") if has_provider else None
+                stamp = _when(updated)
+                if stamp <= 0:
+                    stamp = _when(created)
+                sink.add("crush:" + str(sid), stamp, provider or "crush", model or "unknown",
                          _int(prompt), 0, 0, _int(completion), 0)
     except OSError as e:                           # held by another program right now: read again next pass
         sink.issue(f"{path}: {e}")
@@ -94,6 +103,8 @@ def read_goose(ctx, d, path, offset, limit, settled, sink):
         return None
     for row in data:
         sid, config, provider, updated, created = row[:5]
+        if sid is None or str(sid) == "":
+            continue
         acc, plain = row[5:9], row[9:13]
         use = acc if (acc[0] is not None or acc[1] is not None) else plain
         inp, out, cr, cw = [max(0, _int(v)) for v in use]
@@ -103,7 +114,7 @@ def read_goose(ctx, d, path, offset, limit, settled, sink):
         model = (text(cfg.get("model_name")) or "").strip() if isinstance(cfg, dict) else ""
         model = model or "unknown"
         stamp = _when(updated)
-        sink.add("goose:" + str(sid), stamp or _when(created), provider or "goose", model, inp - cr - cw, cr, cw, out, 0)
+        sink.add("goose:" + str(sid), stamp if stamp > 0 else _when(created), provider or "goose", model, inp - cr - cw, cr, cw, out, 0)
     return limit
 
 

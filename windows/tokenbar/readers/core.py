@@ -6,12 +6,13 @@ Mac app's readers (and its independent Python twin) so the same files give the s
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
 
 from .. import extdb
-from ..util import (JSON_ERRORS, epoch, iter_lines, line_hash, load_json_file, loads, num, raw_num, read_json_file, text, walk_files,
+from ..util import (JSON_ERRORS, BadFile, epoch, iter_lines, line_hash, load_json_file, loads, num, raw_num, read_json_file, text, walk_files,
                     seen_once, mtime, clamp, longpath)
 from .base import db_stamp, family
 
@@ -44,7 +45,7 @@ def _lines(ctx, path, offset, limit, settled):
 # back (see `claude_adjust`).
 
 @family("anthropic-jsonl", under("projects", lambda n: n.endswith(".jsonl")), mode="lines",
-        after=lambda ctx, d, store, changed: claude_adjust(store) if changed else None)
+        after=lambda ctx, d, store, changed: claude_adjust(store) if changed or store.meta("cc-adjust-stale") else None)
 def read_claude(ctx, d, path, offset, limit, settled, sink):
     end = offset
     for line, end in iter_lines(path, offset, limit, settled):
@@ -95,8 +96,10 @@ def _cost_state(line, sink):
     o = loads(line)
     if not isinstance(o, dict) or not isinstance(o.get("modelUsage"), dict):
         return
-    started = epoch(o.get("startTime"))
-    session = text(o.get("sessionId")) or ""
+    session = text(o.get("sessionId"))
+    if not session:          # the Mac reader skips a cost line without a session: it would be a row no transcript can match
+        return
+    started = float(math.floor(epoch(o.get("startTime"))))      # a run is whole seconds (Mac Safe.seconds)
     for raw, u in o["modelUsage"].items():
         if isinstance(raw, str) and isinstance(u, dict):
             # The raw name keeps `claude-opus-5-5` and `claude-opus-5-5[1m]` apart inside one run (each is its own
@@ -125,6 +128,7 @@ def claude_adjust(store):
         events.append(Event(f"cc:adj:{session}:{model}", float(int(last[session])), _provider_of(model), model,
                             gap[0], gap[1], gap[2], gap[3], 0, 0, session))
     store.replace_prefix("cc:adj:", events)
+    store.set_meta("cc-adjust-stale", "")
 
 
 # ---------------------------------------------------------------------------------------------- Codex
@@ -140,6 +144,13 @@ def codex_files(ctx, d):
     return out
 
 
+_CODEX_KINDS = ('"session_meta"', '"turn_context"', '"task_started"', '"token_count"')
+
+
+def _codex_relevant(line):
+    return bool(line) and any(t in line for t in _CODEX_KINDS)
+
+
 def _total(t):
     return num(t, "total_tokens") or num(t, "input_tokens") + num(t, "output_tokens")
 
@@ -148,19 +159,22 @@ def _total(t):
 def read_codex(ctx, d, path, offset, limit, settled, sink):
     if path.endswith(".zst"):
         try:
-            lines = list(extdb.zstd_lines(path))
+            lines = [ln for ln in extdb.zstd_lines(path) if _codex_relevant(ln)]
         except extdb.ZstdMissing as e:
             sink.issue(str(e))
             return None
+        except extdb.ZstdTooLarge as e:      # named every pass, never unpacked again (the Mac app's way)
+            raise BadFile(f"{path}: unpacked content too large ({e}), not read") from None
         except (ValueError, OSError) as e:
             sink.issue(f"{path}: {e}")
             return None
     else:
         lines = (ln for ln, _ in iter_lines(path, 0, limit, True))
     session, provider, model, first_model, started, last, turn, reset = None, "openai", None, None, None, None, None, 0
+    seen_meta = False
     pending = []
     for line in lines:
-        if not line or not any(t in line for t in ('"session_meta"', '"turn_context"', '"task_started"', '"token_count"')):
+        if not _codex_relevant(line):
             continue
         o = loads(line)
         if not isinstance(o, dict):
@@ -169,8 +183,11 @@ def read_codex(ctx, d, path, offset, limit, settled, sink):
         if not isinstance(p, dict):
             continue
         kind = o.get("type")
-        if kind == "session_meta" and session is None:
-            session = text(p.get("id")) or text(p.get("session_id"))
+        if kind == "session_meta" and not seen_meta:
+            # Only the first session_meta describes this file (a fork appends its parent's after it), whether it
+            # names an id or not: a missing id is the file name, as the Mac reader has it.
+            seen_meta = True
+            session = text(p.get("id")) or text(p.get("session_id")) or os.path.basename(path).split(".")[0]
             provider = text(p.get("model_provider")) or "openai"
             started = epoch(p.get("timestamp") or o.get("timestamp")) or None
         elif kind == "turn_context":
@@ -188,7 +205,10 @@ def read_codex(ctx, d, path, offset, limit, settled, sink):
             t = _total(total)
             if t <= 0:
                 continue
-            ts = max(epoch(o.get("timestamp")), turn or 0)
+            line_ts = epoch(o.get("timestamp")) if isinstance(o.get("timestamp"), str) else 0.0
+            if not line_ts:             # a token_count with no time of its own is no call (the Mac reader needs it too)
+                continue
+            ts = max(line_ts, turn or 0)
             if started and ts < started - 1:
                 last = total
                 continue
@@ -305,14 +325,14 @@ def read_omp(ctx, d, path, offset, limit, settled, sink):
     session = _omp_session(path)
     end = offset
     for line, end in iter_lines(path, offset, limit, settled):
-        # A `task` result repeats its subagents' usage; their own transcripts already count it.
-        if '"usage":{' not in line or '"role":"toolResult"' in line:
+        if '"usage"' not in line:          # a cheap first look; every decision below is made on the parsed line
             continue
         o = loads(line)
-        if not isinstance(o, dict):
+        if not isinstance(o, dict) or o.get("type") == "session":
             continue
         m = o.get("message") if isinstance(o.get("message"), dict) else o
-        if m.get("role") == "toolResult":          # the same line with other spacing
+        # A `task` result repeats its subagents' usage; their own transcripts already count it.
+        if m.get("role") == "toolResult" or o.get("role") == "toolResult":
             continue
         u = m.get("usage")
         if not isinstance(u, dict):
@@ -364,7 +384,7 @@ def read_qwen(ctx, d, path, offset, limit, settled, sink):
 def qwen_adjust(ctx, d, store, changed):
     records = [os.path.join(r, "usage_record.jsonl") for r in ctx.roots(d)]
     records = [p for p in records if os.path.isfile(longpath(p))]
-    if not records or not (changed or not store.has_prefix("qwen:adj:")):
+    if not records or not (changed or store.meta("qwen-adjust-stale") or not store.has_prefix("qwen:adj:")):
         return
     from .base import Event
     latest = {}
@@ -381,7 +401,10 @@ def qwen_adjust(ctx, d, store, changed):
                         if key not in latest or num(m, "totalTokens") >= num(latest[key][0], "totalTokens"):
                             latest[key] = (m, r.get("timestamp"))
         except OSError:
-            return              # locked just now: the adjustment rows stay as they are (the file is read again)
+            # Locked just now. The scanner has already recorded the file as read, so nothing would bring the pass back:
+            # note that the adjustment is owed (done at the next pass, whatever changed) and name the file.
+            store.set_meta("qwen-adjust-stale", "1")
+            raise
     seen = store.sums("qwen:", exclude="qwen:adj:", with_provider=True)
     events = []
     for (session, model), (m, ts) in latest.items():
@@ -394,6 +417,7 @@ def qwen_adjust(ctx, d, store, changed):
         if ev.total > 0:
             events.append(ev)
     store.replace_prefix("qwen:adj:", events)
+    store.set_meta("qwen-adjust-stale", "")
 
 
 # ---------------------------------------------------------------------------------------------- Kimi Code

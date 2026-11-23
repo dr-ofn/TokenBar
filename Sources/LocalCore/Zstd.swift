@@ -8,6 +8,8 @@ enum Zstd {
         case binaryMissing
         case spawnFailed(path: String, code: Int32)
         case decompressFailed(path: String, status: Int32)
+        /// One line, or the whole output, is larger than any log of a tool is: not read (a small archive can unpack to gigabytes).
+        case tooLarge(path: String, what: String)
 
         var errorDescription: String? {
             switch self {
@@ -17,6 +19,8 @@ enum Zstd {
                 return "posix_spawn failed for \(path) (error \(code))"
             case let .decompressFailed(path, status):
                 return "zstd failed (status \(status)) while reading \(path)"
+            case let .tooLarge(_, what):
+                return "açılmış içerik çok büyük (\(what)), okunmadı"
             }
         }
     }
@@ -60,6 +64,10 @@ enum Zstd {
 
     private static let resolver = Resolver()
 
+    /// The longest line (Codex writes whole tool outputs into one) and the most output one archive may unpack to.
+    static let maxLineBytes = 64 << 20
+    static let maxOutputBytes: UInt64 = 4 << 30
+
     /// Streams the decompressed file as newline-delimited lines (CRLF tolerated,
     /// newline excluded). `body` receives the raw bytes, matching `LineReader`.
     /// Returning `false` from `body` stops the read early; that is success.
@@ -69,7 +77,8 @@ enum Zstd {
     /// Foundation wait drives per-thread run loops and deadlocks once many scan
     /// workers spawn zstd concurrently.
     @discardableResult
-    static func forEachLine(path: String, _ body: (UnsafeRawBufferPointer) -> Bool) throws -> UInt64 {
+    static func forEachLine(path: String, maxLine: Int = maxLineBytes, maxOutput: UInt64 = maxOutputBytes,
+                            _ body: (UnsafeRawBufferPointer) -> Bool) throws -> UInt64 {
         guard let binary else { throw Failure.binaryMissing }
 
         var fds: [Int32] = [-1, -1]
@@ -103,6 +112,7 @@ enum Zstd {
         var searchFrom = 0
         var stopped = false
         var readFailed = false
+        var oversize: String?
         var chunk = [UInt8](repeating: 0, count: 1 << 16)
 
         readLoop: while !stopped {
@@ -132,10 +142,15 @@ enum Zstd {
                 pending.removeFirst(lineStart)
                 searchFrom = max(0, searchFrom - lineStart)
             }
+            if !stopped, pending.count > maxLine { oversize = "tek satır \(maxLine >> 20) MiB'ı aşıyor"; break }
+            if decompressed > maxOutput { oversize = "çıktı \(maxOutput >> 20) MiB'ı aşıyor"; break }
         }
 
         close(readFD)
+        // A read that gave up has a zstd that is still writing: it ends on the closed pipe, and is ended here at once.
+        if oversize != nil { kill(pid, SIGKILL) }
         let status = reap(pid)
+        if let oversize { throw Failure.tooLarge(path: path, what: oversize) }
         if readFailed { throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path]) }
         // When the caller stopped early we closed the pipe, so zstd dies of
         // SIGPIPE with a nonzero status; that stop is success, not an error.

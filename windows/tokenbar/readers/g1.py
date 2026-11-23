@@ -85,12 +85,15 @@ def _pi_whole(d, key):
 def read_pi(ctx, d, path, offset, limit, settled, sink):
     end = offset
     for line, end in iter_lines(path, offset, limit, settled):
-        if '"usage":{' not in line or '"role":"toolResult"' in line or '"type":"session"' in line[:80]:
+        if '"usage"' not in line:          # a cheap first look; every decision below is made on the parsed line
             continue
         row = loads(line)
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or row.get("type") == "session":
             continue
         m = row.get("message") if isinstance(row.get("message"), dict) else row
+        # A `task` result repeats its subagents' usage; their own transcripts already count it.
+        if m.get("role") == "toolResult" or row.get("role") == "toolResult":
+            continue
         u = m.get("usage")
         if not isinstance(u, dict):
             continue

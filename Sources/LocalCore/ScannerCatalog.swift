@@ -41,7 +41,8 @@ extension UsageScanner {
         case .devinTranscripts:
             return FileSource(name: d.name, appendOnly: false, files: under("/cli/transcripts") { $0.hasSuffix(".json") }, read: readDevin)
         case .antigravitySQLite:
-            return FileSource(name: d.name, appendOnly: false, files: under("/conversations") { $0.hasSuffix(".db") }, read: readAntigravity)
+            return FileSource(name: d.name, appendOnly: false, files: under("/conversations") { $0.hasSuffix(".db") || $0.hasSuffix(".db-wal") },
+                              read: readAntigravity)
         case .opencodeSQLite:
             // Read through `openCodeDatabases`, not as plain files.
             return FileSource(name: d.name, appendOnly: false, files: { [] }, read: { _ in FileRead(events: [], end: 0) })

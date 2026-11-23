@@ -91,15 +91,31 @@ def fold(s):
 
 
 def strip_brackets(s):
+    """`[1m]`, `(high)` and the like at the end, one backward pass (what `\\s*(?:\\[[^\\]]*\\]|\\([^)]*\\))\\s*$` removes, again
+    and again): a name of many groups is not scanned once per group."""
+    end = len(s)
     while True:
-        t = re.sub(r"\s*(?:\[[^\]]*\]|\([^)]*\))\s*$", "", s)
-        if t == s:
-            return s
-        s = t
+        j = end
+        while j > 0 and s[j - 1].isspace():
+            j -= 1
+        if j == 0 or s[j - 1] not in ")]":
+            return s[:end]
+        closer = s[j - 1]
+        opener = "[" if closer == "]" else "("
+        # the first opener after the last closer: the group's body holds no closer
+        start = s.find(opener, s.rfind(closer, 0, j - 1) + 1, j - 1)
+        if start < 0:
+            return s[:end]
+        end = start
+        while end > 0 and s[end - 1].isspace():
+            end -= 1
+
+
+MAX_NAME = 256   # the longest model name that is normalised (ModelNames.maxNameLength): the steps walk a name more than once
 
 
 def clean(model):
-    s = strip_brackets(model.strip().lower())
+    s = strip_brackets(model[:MAX_NAME].strip().lower())
     s = s.rsplit("/", 1)[-1]
     t = VENDOR_PREFIX.sub("", s)
     if t == s:
@@ -278,11 +294,15 @@ def openrouter_rows(raw):
             if start is None:
                 corrupt = True
                 break
+            # a cache price the tier does not state is the base row's (as a LiteLLM tier carries it), not 0: 0 would make
+            # it the tier's input price
+            # (a JSON null is "not given" like a missing key)
             tiers.append([start,
-                          per_million(t["prompt"]) if "prompt" in t else base[0],
-                          per_million(t["completion"]) if "completion" in t else base[1],
-                          per_million(t.get("input_cache_read")), per_million(t.get("input_cache_write")),
-                          per_million(t.get("input_cache_write_1h"))])
+                          per_million(t["prompt"]) if t.get("prompt") is not None else base[0],
+                          per_million(t["completion"]) if t.get("completion") is not None else base[1],
+                          per_million(t["input_cache_read"]) if t.get("input_cache_read") is not None else base[2],
+                          per_million(t["input_cache_write"]) if t.get("input_cache_write") is not None else base[3],
+                          per_million(t["input_cache_write_1h"]) if t.get("input_cache_write_1h") is not None else base[4]])
         name = m.get("name") if isinstance(m.get("name"), str) else ""
         colon = name.find(":")
         if 1 <= colon <= 40:
@@ -349,13 +369,16 @@ def modelsdev_rows(raw):
                 if size is None:
                     corrupt = True
                     break
-                tiers.append([size + 1, num(t["input"]) if "input" in t else base[0], num(t["output"]) if "output" in t else base[1],
-                              num(t.get("cache_read")), num(t.get("cache_write")), 0.0])
+                tiers.append([size + 1, num(t["input"]) if t.get("input") is not None else base[0],
+                              num(t["output"]) if t.get("output") is not None else base[1],
+                              num(t["cache_read"]) if t.get("cache_read") is not None else base[2],
+                              num(t["cache_write"]) if t.get("cache_write") is not None else base[3], 0.0])
             over = c.get("context_over_200k")
             if not tiers and isinstance(over, dict):
-                tiers.append([200001, num(over["input"]) if "input" in over else base[0],
-                              num(over["output"]) if "output" in over else base[1],
-                              num(over.get("cache_read")), num(over.get("cache_write")), 0.0])
+                tiers.append([200001, num(over["input"]) if over.get("input") is not None else base[0],
+                              num(over["output"]) if over.get("output") is not None else base[1],
+                              num(over["cache_read"]) if over.get("cache_read") is not None else base[2],
+                              num(over["cache_write"]) if over.get("cache_write") is not None else base[3], 0.0])
             row = base + [tiers, str(m.get("name") or "")]
             if not corrupt and row_sane(row):
                 out[f"{provider}/{model_id}"] = row
@@ -391,21 +414,40 @@ def choose(source, items):
 
 
 class Catalogue:
-    def __init__(self, source, rows):
+    def __init__(self, source, rows, exact=None):
+        """`rows` are indexed by id and by key; `exact` are rows only a lookup by exact id reaches (see `split`): they
+        join the id index and never speak for a key."""
         self.source = source
         self.by_id = {}
         groups = defaultdict(list)
         for row_id, row in rows.items():
-            if source != "modelsdev":
-                self.by_id[row_id.lower()] = (row_id, row)
             if route_tagged(row_id):
                 continue
             groups[catalogue_key(source, row_id)].append((row_id, row))
+        if source != "modelsdev":
+            # Ids that differ only in case share one slot: the first in sorted order keeps it, so the whole catalogue and
+            # the one built again from winners and exact rows agree, whatever order the rows came in.
+            every = dict(exact or {})
+            every.update(rows)
+            for row_id in sorted(every):
+                self.by_id.setdefault(row_id.lower(), (row_id, every[row_id]))
         self.by_key = {k: choose(source, v) for k, v in groups.items()}
 
-    def kept_rows(self):
-        """The rows a lookup can ever return: what the cache file and the snapshot hold."""
-        return {row_id: row for row_id, row in self.by_key.values()}
+
+def split(source, rows):
+    """What a cache file or the snapshot keeps of a whole catalogue: (winners, exact). `winners` are the row the index
+    picks for each key (the only rows that speak for a name); `exact` are the other rows (OpenRouter and LiteLLM) that
+    a lookup by exact id can still return with a price of their own: a route (`:batch`, `:nitro`), a provider
+    (`vertex_ai/...`), a dated or regional id, whatever its price. They are kept
+    apart because the winner of a key is chosen among all its rows: a catalogue built again from the kept rows has to
+    choose the same winners."""
+    whole = Catalogue(source, rows)
+    winners = {row_id: row for row_id, row in whole.by_key.values()}
+    if source == "modelsdev":
+        return winners, {}
+    # Every other row stays, even one that says what its key's winner says: whole, a lookup by that exact id answers from
+    # this catalogue before any later catalogue is asked, and a cache without the row would hand the name to the next one.
+    return winners, {row_id: row for row_id, row in rows.items() if row_id not in winners}
 
 
 CATALOGUE_NAMES = {"openrouter": "OpenRouter", "litellm": "LiteLLM", "modelsdev": "models.dev"}
@@ -433,6 +475,10 @@ def free_entry(key, name, source):
                 input=0.0, output=0.0, cacheRead=0.0, cacheWrite=0.0, cacheWrite1h=0.0)
 
 
+ALIAS_DEPTH = 4      # `a` to `b` to `c` to `d` to `e` is four steps and is priced, a fifth is not
+ALIAS_LOOP = object()
+
+
 class Pricer:
     """Resolves a logged (provider, model) to an entry or None. `catalogues` keeps the lookup order."""
 
@@ -454,14 +500,15 @@ class Pricer:
                     return dict(entry, name=other[1][6])
         return entry
 
-    def catalogue_hit(self, keys, raw):
+    def catalogue_hit(self, keys, raw, only=None):
+        catalogues = [c for c in self.catalogues if only is None or c.source == only]
         if raw is not None:
-            for cat in self.catalogues:
+            for cat in catalogues:
                 if cat.source in ("openrouter", "litellm") and raw in cat.by_id:
                     row_id, row = cat.by_id[raw]
                     return self._named(entry_from_row(cat.source, CATALOGUE_NAMES[cat.source], row_id, row, keys[0]), row, keys)
         for k in keys:
-            for cat in self.catalogues:
+            for cat in catalogues:
                 if k in cat.by_key:
                     row_id, row = cat.by_key[k]
                     return self._named(entry_from_row(cat.source, CATALOGUE_NAMES[cat.source], row_id, row, k), row, keys)
@@ -471,16 +518,28 @@ class Pricer:
         """The hand-corrected table, then an exact catalogue id, then the normalised name."""
         for k in keys.ordered:
             if k in self.override:
-                return dict(self.override[k])
+                hit = self.override[k]
+                # a table row of kind "openrouter" is a copy of an OpenRouter price pinned at the table's date: the live
+                # (or cached) OpenRouter catalogue, when it lists the model, is that price today. Stand-ins ("near") and
+                # prices published elsewhere ("other") are for models no catalogue lists, and stay as the table says.
+                if hit.get("kind") == "openrouter":
+                    live = self.catalogue_hit(keys.ordered, raw, only="openrouter")
+                    if live is not None:
+                        return live
+                return dict(hit)
         return self.catalogue_hit(keys.ordered, raw)
 
     def resolve(self, provider, model):
+        if len(model) > MAX_NAME:            # no model has a name this long: such a line is not a model
+            return None
         keys = Keys(model)
         raw = strip_brackets(model.strip().lower())
         local = is_local_provider(provider, self.local_providers) or keys.quantised
         for k in keys.ordered:
             if k in self.aliases:
-                hit = self.apply_alias(self.aliases[k], keys.key1)
+                hit = self.apply_alias(self.aliases[k], keys.key1, k, frozenset([k]))
+                if hit is ALIAS_LOOP:
+                    return None
                 if hit is not None:
                     return hit
                 break
@@ -502,35 +561,52 @@ class Pricer:
             hit = None
             for k in proxy.ordered:
                 if k in self.aliases:
-                    hit = self.apply_alias(self.aliases[k], proxy.key1)
+                    hit = self.apply_alias(self.aliases[k], proxy.key1, k, frozenset([k]))
+                    if hit is ALIAS_LOOP:
+                        return None
                     break
             hit = hit or self.lookup(proxy, None)
             if hit:
                 return dict(hit, kind="approximate", source=f"approximate: {keys.key2} -> {name} ({hit['source']})")
         return None
 
-    def apply_alias(self, alias, key, depth_left=4):
-        if depth_left <= 0:
-            return None
+    def apply_alias(self, alias, key, own=None, visited=frozenset(), steps=0):
+        """An entry, None (a target nothing lists: the logged name is priced the ordinary way) or ALIAS_LOOP (a loop, or a
+        chain of too many steps: unpriced). `own` is the alias name being applied, `visited` the alias names of the chain so
+        far, `steps` how many alias-to-alias steps led here."""
         if isinstance(alias, str):
-            hit = self.lookup(Keys(alias), strip_brackets(alias.strip().lower()))
+            keys = Keys(alias)
+            found = None
+            # the target may be another alias name: follow it. A name already met, or a fifth step, is a loop or a chain
+            # too long: unpriced. An alias that names itself ("gpt-4o": "azure/gpt-4o") points at the catalogue.
+            for k in keys.ordered:
+                if k in self.aliases:
+                    if k != own:
+                        if k in visited or steps >= ALIAS_DEPTH:
+                            return ALIAS_LOOP
+                        found = self.apply_alias(self.aliases[k], keys.key1, k, visited | {k}, steps + 1)
+                        if found is ALIAS_LOOP:
+                            return ALIAS_LOOP
+                    break
+            hit = found or self.lookup(keys, strip_brackets(alias.strip().lower()))
             if hit is None:
                 return None
             return dict(hit, kind="alias", source=f"your alias: {key} -> {alias} ({hit['source']})")
         if alias.get("free") is True:
             return free_entry(key, key, f"your alias: {key} -> free")
         if isinstance(alias.get("as"), str) and alias["as"]:
-            return self.apply_alias(alias["as"], key, depth_left - 1)
+            return self.apply_alias(alias["as"], key, own, visited, steps)
         inp, out = num(alias.get("input")), num(alias.get("output"))
         if inp > 0 and out > 0 and all(is_rate(x) for x in (inp, out, num(alias.get("cacheRead")), num(alias.get("cacheWrite")))):
-            write = num(alias.get("cacheWrite")) or inp
+            # 0 is a price (a free cache); only a key that is not there (or is null) leaves the cache priced like input
+            read = num(alias["cacheRead"]) if alias.get("cacheRead") is not None else inp
+            write = num(alias["cacheWrite"]) if alias.get("cacheWrite") is not None else inp
             note = alias.get("source") if isinstance(alias.get("source"), str) and alias["source"] else None
             kind = alias.get("kind") if alias.get("kind") in ("near", "other") else "alias"
             return dict(key=key, name=alias.get("name") if isinstance(alias.get("name"), str) and alias["name"] else key,
                         kind=kind, catalog=None, catalogID=None,
                         source=f"your alias: {key} -> hand-written price" + (f" ({note})" if note else ""),
-                        tiers=[], input=inp, output=out, cacheRead=num(alias.get("cacheRead")) or inp, cacheWrite=write,
-                        cacheWrite1h=write)
+                        tiers=[], input=inp, output=out, cacheRead=read, cacheWrite=write, cacheWrite1h=write)
         return None
 
 

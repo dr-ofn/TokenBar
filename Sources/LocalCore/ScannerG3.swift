@@ -148,10 +148,10 @@ extension UsageScanner {
         """
         var events: [UsageEvent] = []
         try db.query(sql) { st in
-            var stamp = sqlite3_column_double(st, 3)
-            if stamp <= 0 { stamp = sqlite3_column_double(st, 4) }
+            var stamp = Self.time(st, 3)
+            if stamp <= 0 { stamp = Self.time(st, 4) }
             if let event = CrushParser.event(sessionID: ExternalDB.text(st, 0) ?? "", promptTokens: sqlite3_column_int64(st, 1),
-                                             completionTokens: sqlite3_column_int64(st, 2), time: J.time(stamp),
+                                             completionTokens: sqlite3_column_int64(st, 2), time: stamp,
                                              model: ExternalDB.text(st, 5), provider: ExternalDB.text(st, 6),
                                              project: project, file: file) {
                 events.append(event)
@@ -228,7 +228,7 @@ extension UsageScanner {
             let row = DevinDBParser.Row(session: session, node: sqlite3_column_int64(st, 1), requestID: ExternalDB.text(st, 2),
                                         input: sqlite3_column_int64(st, 3), output: sqlite3_column_int64(st, 4),
                                         cacheRead: sqlite3_column_int64(st, 5), cacheWrite: sqlite3_column_int64(st, 6),
-                                        time: J.time(sqlite3_column_double(st, 7)),
+                                        time: Self.time(st, 7),
                                         generationModel: ExternalDB.text(st, 8), sessionModel: ExternalDB.text(st, 9),
                                         workingDirectory: ExternalDB.text(st, 10))
             if let event = DevinDBParser.event(row, file: file) { events.append(event) }

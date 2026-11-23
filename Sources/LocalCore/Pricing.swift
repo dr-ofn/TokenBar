@@ -230,11 +230,12 @@ public enum PriceBook {
         UserAliases.load(path: lock.withLock { aliasPathValue } ?? UserAliases.defaultPath)
     }
 
-    /// Asks the network for fresher catalogues, in the background and at most once a day per source; the first
-    /// prices never wait for it. When something changed the cache is reloaded and `revision` counts up.
-    /// Does nothing when offline or pinned.
+    /// Asks the network for fresher catalogues, in the background and at most once a day per source (the feed leaves
+    /// a cache younger than a day alone, so calling this again is cheap: the app calls it at launch, once a day while
+    /// it runs, and when the user turns Offline off); the first prices never wait for it. When something changed the
+    /// cache is reloaded and `revision` counts up. Does nothing when offline or pinned.
     public static func startBackgroundRefresh(feed: PriceFeed = PriceBook.liveFeed()) {
-        guard !isOffline, !isPinned, lock.withLock({ let first = !refreshStarted; refreshStarted = true; return first }) else { return }
+        guard !isOffline, !isPinned else { return }
         Task.detached(priority: .utility) {
             let report = await feed.refresh()
             if report.changed { reload(feed: feed) }
@@ -245,7 +246,6 @@ public enum PriceBook {
 
     nonisolated(unsafe) private static var current: PriceResolver?
     nonisolated(unsafe) private static var revisionValue = 0
-    nonisolated(unsafe) private static var refreshStarted = false
     /// The alias file of the home folder in use; nil is the process's own home.
     nonisolated(unsafe) private static var aliasPathValue: String?
     nonisolated(unsafe) private static var offlineValue = false

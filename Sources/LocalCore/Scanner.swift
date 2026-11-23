@@ -88,6 +88,13 @@ public final class UsageScanner {
     /// Databases already read in this pass whose files come as a pair (Zed's `threads.db` and its `-wal`): the
     /// second file of the pair is recorded without a second read of the same database.
     var readThisPass: Set<String> = []
+    /// The stamp of such a pair (the .db and the -wal, each by inode, size and mtime) taken before the pair was read.
+    /// The second file of the pair is recorded as read only while the pair still looks like that: a write that came
+    /// after the read and before the second file was looked at is not in what was read.
+    var pairStamps: [String: String] = [:]
+    /// For checks: called right after a database pair was read in this pass (the path of the .db), so a check can make
+    /// the tool write at that very moment.
+    public var afterPairRead: ((String) -> Void)?
 
     /// `environment` is what moves the tools' folders (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`...); by
     /// default the process's own, and only for the real home.
@@ -109,6 +116,8 @@ public final class UsageScanner {
         var result = ScanResult()
         result.issues += catalog.issues
         readThisPass = []
+        pairStamps = [:]
+        do { try store.repairZeroDates() } catch { result.issues.append(SourceIssue(source: "index", message: "tarih onarımı: \(error)")) }
 
         for descriptor in catalog.descriptors where descriptor.family != .opencodeSQLite && !descriptor.family.readsOwnDatabases && descriptor.family != .notCountable {
             scan(fileSource(descriptor, roots: catalog.rootPaths(of: descriptor)), &result)

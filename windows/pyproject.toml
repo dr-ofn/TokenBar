@@ -1,6 +1,6 @@
 [project]
 name = "tokenbar"
-version = "9.0.0"
+version = "9.0.1"
 description = "TokenBar for Windows: counts the tokens and dollars your AI coding tools used, from their own local logs (read-only)."
 readme = "README.md"
 license = { text = "MIT" }

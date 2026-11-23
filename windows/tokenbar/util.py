@@ -112,8 +112,9 @@ def epoch(value: Any) -> float:
 
 
 def to_seconds(v: Any) -> float:
-    """A number of seconds or milliseconds as seconds (0.0 for anything else)."""
-    return epoch(v) if is_number(v) else 0.0
+    """A time as seconds, as the Mac app's `J.time` reads it: a number of seconds or milliseconds, or an ISO-8601
+    string (0.0 for anything else)."""
+    return epoch(v)
 
 
 def sha(s: str) -> str:
@@ -247,10 +248,23 @@ def mtime(path: str) -> float:
         return 0.0
 
 
+def _always_long(path: str) -> str:
+    """`longpath` without the length condition: for a walk, whose paths grow below the root by an unknown amount."""
+    if os.name == "nt" and not path.startswith("\\\\?\\"):
+        path = os.path.abspath(path)
+        return "\\\\?\\UNC\\" + path[2:] if path.startswith("\\\\") else "\\\\?\\" + path
+    return path
+
+
 def walk_files(root: str, match, max_depth: int | None = None) -> list[str]:
-    """Every file under `root` whose base name `match(name)` accepts, sorted. A missing root has none."""
+    """Every file under `root` whose base name `match(name)` accepts, sorted. A missing root has none.
+
+    On Windows the walk runs on the `\\\\?\\` form of the root whatever its length: a short root with a path of 260
+    characters or more below it would otherwise be skipped, without a word (os.walk swallows the error). The paths
+    come back written as the caller wrote the root."""
     out: list[str] = []
-    root = longpath(root)
+    shown = root
+    root = _always_long(root)
     if not os.path.isdir(root):
         return out
     base_depth = root.rstrip("\\/").count(os.sep)
@@ -258,9 +272,14 @@ def walk_files(root: str, match, max_depth: int | None = None) -> list[str]:
         if max_depth is not None and dirpath.rstrip("\\/").count(os.sep) - base_depth >= max_depth:
             dirnames[:] = []
         dirnames.sort()
+        if dirpath.startswith(root):
+            rel = dirpath[len(root):].lstrip("\\/")
+            here = os.path.join(shown, rel) if rel else shown
+        else:
+            here = dirpath
         for name in sorted(filenames):
             if match(name):
-                out.append(os.path.join(dirpath, name))
+                out.append(os.path.join(here, name))
     return out
 
 

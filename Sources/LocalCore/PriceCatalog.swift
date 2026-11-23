@@ -102,17 +102,46 @@ final class Catalog: @unchecked Sendable {
 
     var rowCount: Int { byID.isEmpty ? byKey.count : byID.count }
 
-    init(source: PriceSource, rows: [String: CatalogRow]) {
+    /// `rows` are indexed by id and by key. `exact` are rows only a lookup by exact id can reach (see `split`): they join
+    /// the id index and never speak for a key.
+    init(source: PriceSource, rows: [String: CatalogRow], exact: [String: CatalogRow] = [:]) {
         self.source = source
         var ids: [String: Hit] = [:]
         var groups: [String: [Hit]] = [:]
         for (id, row) in rows {
-            if source != .modelsdev { ids[id.lowercased()] = Hit(id: id, row: row) }
             if Catalog.isRouteTagged(id) { continue }
             groups[Catalog.key(source: source, id: id), default: []].append(Hit(id: id, row: row))
         }
+        if source != .modelsdev {
+            // Ids that differ only in case share one slot: the first in sorted order keeps it, so the whole catalogue and the
+            // one built again from winners and exact rows agree, whatever order the rows came in.
+            var every = exact
+            for (id, row) in rows { every[id] = row }
+            let sorted = every.keys.sorted { (a: String, b: String) -> Bool in a.unicodeScalars.lexicographicallyPrecedes(b.unicodeScalars) }
+            for id in sorted {
+                let folded = id.lowercased()
+                if ids[folded] == nil, let row = every[id] { ids[folded] = Hit(id: id, row: row) }
+            }
+        }
         byID = ids
         byKey = groups.mapValues { Catalog.choose(source: source, $0) }
+    }
+
+    /// What a cache file or the snapshot keeps of a whole catalogue: `winners`, the row the index picks for each key (the
+    /// only rows that speak for a name), and `exact`, the other rows (OpenRouter and LiteLLM) that a lookup by exact id
+    /// can still return: a route (`:batch`, `:nitro`), a provider (`vertex_ai/...`), a dated or regional id, whatever its
+    /// price. A row that says what its key's winner says stays too: whole, a lookup by that exact id answers from this
+    /// catalogue before a later one is asked, and a cache without the row would hand the name to the next catalogue. The
+    /// two are kept apart because the winner of a key is chosen among all its rows: a catalogue built again from the
+    /// kept rows must choose the same winners.
+    static func split(source: PriceSource, rows: [String: CatalogRow]) -> (winners: [String: CatalogRow], exact: [String: CatalogRow]) {
+        let whole = Catalog(source: source, rows: rows)
+        var winners: [String: CatalogRow] = [:]
+        for hit in whole.byKey.values { winners[hit.id] = hit.row }
+        guard source != .modelsdev else { return (winners, [:]) }
+        var exact: [String: CatalogRow] = [:]
+        for (id, row) in rows where winners[id] == nil { exact[id] = row }
+        return (winners, exact)
     }
 
     /// models.dev ids are `provider/model-id`; the provider is not part of the model's name.
@@ -159,8 +188,8 @@ public struct PriceCatalogs: Sendable {
     /// Lookup order: OpenRouter, LiteLLM, models.dev.
     var ordered: [Catalog] { PriceSource.allCases.compactMap { catalogs[$0] } }
 
-    mutating func set(_ source: PriceSource, rows: [String: CatalogRow], origin: Origin) {
-        catalogs[source] = Catalog(source: source, rows: rows)
+    mutating func set(_ source: PriceSource, rows: [String: CatalogRow], exact: [String: CatalogRow] = [:], origin: Origin) {
+        catalogs[source] = Catalog(source: source, rows: rows, exact: exact)
         origins[source] = origin
     }
 
@@ -206,7 +235,8 @@ enum PriceSnapshot {
         guard let root = (try? JSONSerialization.jsonObject(with: Data(priceSnapshotJSON.utf8))) as? [String: Any] else { return out }
         let generated = (root["generated"] as? String) ?? ""
         for source in [PriceSource.litellm, .modelsdev] {
-            if let rows = PriceParsers.compactRows(root[source.rawValue]) { out.set(source, rows: rows, origin: .snapshot(generated)) }
+            let exact = PriceParsers.compactRows((root["exact"] as? [String: Any])?[source.rawValue]) ?? [:]
+            if let rows = PriceParsers.compactRows(root[source.rawValue]) { out.set(source, rows: rows, exact: exact, origin: .snapshot(generated)) }
         }
         return out
     }()
@@ -220,6 +250,9 @@ enum PriceParsers {
         if let n = any as? NSNumber { v = n.doubleValue } else if let s = any as? String, let d = Double(s) { v = d } else { return 0 }
         return v.isFinite ? v : 0
     }
+
+    /// A JSON field that says something: a missing key and a null are both "not given" (a tier then keeps the base row's price).
+    static func given(_ any: Any?) -> Bool { any != nil && !(any is NSNull) }
 
     /// USD per token (or per 1M) -> USD per 1M tokens, six decimals.
     static func perMillion(_ any: Any?) -> Double {
@@ -261,11 +294,15 @@ enum PriceParsers {
             for t in overrides {
                 // A threshold that is zero, negative or no Int64 spoils the row, as a negative rate does.
                 guard let start = Safe.size(number(t["min_prompt_tokens"]), limit: PriceLimits.maxTierTokens), start > 0 else { corrupt = true; break }
-                row.tiers.append(CatalogTier(minPrompt: start,
-                                             input: t["prompt"] != nil ? perMillion(t["prompt"]) : row.input,
-                                             output: t["completion"] != nil ? perMillion(t["completion"]) : row.output,
-                                             cacheRead: perMillion(t["input_cache_read"]), cacheWrite: perMillion(t["input_cache_write"]),
-                                             cacheWrite1h: perMillion(t["input_cache_write_1h"])))
+                // A cache price the tier does not state is the base row's (as a LiteLLM tier carries it), not 0: 0 would
+                // make it the tier's input price.
+                let tierInput: Double = given(t["prompt"]) ? perMillion(t["prompt"]) : row.input
+                let tierOutput: Double = given(t["completion"]) ? perMillion(t["completion"]) : row.output
+                let tierRead: Double = given(t["input_cache_read"]) ? perMillion(t["input_cache_read"]) : row.cacheRead
+                let tierWrite: Double = given(t["input_cache_write"]) ? perMillion(t["input_cache_write"]) : row.cacheWrite
+                let tierWrite1h: Double = given(t["input_cache_write_1h"]) ? perMillion(t["input_cache_write_1h"]) : row.cacheWrite1h
+                row.tiers.append(CatalogTier(minPrompt: start, input: tierInput, output: tierOutput, cacheRead: tierRead,
+                                             cacheWrite: tierWrite, cacheWrite1h: tierWrite1h))
             }
             row.name = displayName(m["name"] as? String ?? "")
             if !corrupt, row.isPriced { out[id] = row }
@@ -336,14 +373,20 @@ enum PriceParsers {
                         corrupt = true
                         break
                     }
-                    row.tiers.append(CatalogTier(minPrompt: size + 1, input: t["input"] != nil ? number(t["input"]) : row.input,
-                                                 output: t["output"] != nil ? number(t["output"]) : row.output,
-                                                 cacheRead: number(t["cache_read"]), cacheWrite: number(t["cache_write"]), cacheWrite1h: 0))
+                    let tierInput: Double = given(t["input"]) ? number(t["input"]) : row.input
+                    let tierOutput: Double = given(t["output"]) ? number(t["output"]) : row.output
+                    let tierRead: Double = given(t["cache_read"]) ? number(t["cache_read"]) : row.cacheRead
+                    let tierWrite: Double = given(t["cache_write"]) ? number(t["cache_write"]) : row.cacheWrite
+                    row.tiers.append(CatalogTier(minPrompt: size + 1, input: tierInput, output: tierOutput, cacheRead: tierRead,
+                                                 cacheWrite: tierWrite, cacheWrite1h: 0))
                 }
                 if row.tiers.isEmpty, let over = c["context_over_200k"] as? [String: Any] {
-                    row.tiers.append(CatalogTier(minPrompt: 200_001, input: over["input"] != nil ? number(over["input"]) : row.input,
-                                                 output: over["output"] != nil ? number(over["output"]) : row.output,
-                                                 cacheRead: number(over["cache_read"]), cacheWrite: number(over["cache_write"]), cacheWrite1h: 0))
+                    let overInput: Double = given(over["input"]) ? number(over["input"]) : row.input
+                    let overOutput: Double = given(over["output"]) ? number(over["output"]) : row.output
+                    let overRead: Double = given(over["cache_read"]) ? number(over["cache_read"]) : row.cacheRead
+                    let overWrite: Double = given(over["cache_write"]) ? number(over["cache_write"]) : row.cacheWrite
+                    row.tiers.append(CatalogTier(minPrompt: 200_001, input: overInput, output: overOutput, cacheRead: overRead,
+                                                 cacheWrite: overWrite, cacheWrite1h: 0))
                 }
                 row.name = (m["name"] as? String) ?? ""
                 if !corrupt, row.isPriced { out["\(provider)/\(modelID)"] = row }
@@ -359,9 +402,9 @@ public enum PriceTools {
         var out: [String: [String: [Any]]] = [:]
         for (source, data) in [(PriceSource.litellm, litellm), (.modelsdev, modelsdev)] {
             guard let rows = PriceParsers.rows(source, data) else { continue }
-            var kept: [String: [Any]] = [:]
-            for hit in Catalog(source: source, rows: rows).byKey.values { kept[hit.id] = hit.row.compact }
-            out[source.rawValue] = kept
+            let split = Catalog.split(source: source, rows: rows)
+            out[source.rawValue] = split.winners.mapValues { (row: CatalogRow) -> [Any] in row.compact }
+            if !split.exact.isEmpty { out[source.rawValue + "-exact"] = split.exact.mapValues { (row: CatalogRow) -> [Any] in row.compact } }
         }
         return out
     }

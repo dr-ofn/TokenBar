@@ -152,7 +152,8 @@ extension UsageScanner {
         let path = file.path.hasSuffix("-wal") ? String(file.path.dropLast(4)) : file.path
         guard Self.fileInfo(path) != nil else { return FileRead(events: [], end: file.limit) }
         // `threads.db` and its `-wal` are two files of one database: when both changed, the first read covers both.
-        if readThisPass.contains(path) { return FileRead(events: [], end: file.limit) }
+        if readThisPass.contains(path) { return FileRead(events: [], end: pairEnd(path, file.limit)) }
+        let before = pairStamp(path)
         let db = try ExternalDB(path: path, immutable: false)
         var columns = Set<String>()
         try db.query("PRAGMA table_info(threads)") { row in
@@ -198,6 +199,7 @@ extension UsageScanner {
             meta[metaKey] = stamp
         }
         readThisPass.insert(path)
+        pairStamps[path] = before
         let shown = problems.prefix(5).map { $0 } + (problems.count > 5 ? ["(+\(problems.count - 5) iş parçacığı daha)"] : [])
         return FileRead(events: events, end: waitsForZstd ? 0 : file.limit, meta: meta, retire: retire, issues: shown)
     }
@@ -214,7 +216,8 @@ extension UsageScanner {
         }
         defer { try? FileManager.default.removeItem(atPath: path) }
         var out = Data()
-        try Zstd.forEachLine(path: path) { line in
+        // A thread is one line of JSON: its size is the output's (what a Zed thread holds is far below this).
+        try Zstd.forEachLine(path: path, maxLine: 256 << 20, maxOutput: 256 << 20) { line in
             out.append(contentsOf: line)
             // The thread is one line of JSON; a line break the decoder dropped is only whitespace to it.
             out.append(0x0A)

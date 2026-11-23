@@ -57,12 +57,29 @@ struct CodexParser {
         var last: Totals?
         var turnStartedAt: Double?
         var epoch: Int?
+        /// How many calls were written while no model was known yet: their rows say `unknown` until a later read names it.
+        var unknownRows: Int?
     }
 
     var state: State
     private(set) var events: [UsageEvent] = []
+    /// A model was named for the first time in a read that resumed after rows written as `unknown` by an earlier read:
+    /// those rows are not in `events`, so the file has to be read again from its first byte (the rows are keyed, the
+    /// rewrite is exact).
+    private(set) var needsRestart = false
+    /// The calls of this read that were written as `unknown` (the ones `events` can still correct itself).
+    private var unknownThisRead = 0
+    /// The state this read resumed from already held totals: an earlier read had seen token counts.
+    private let resumedAfterCounts: Bool
     let fallbackSession: String
     let file: String
+
+    init(state: State, fallbackSession: String, file: String) {
+        self.state = state
+        self.fallbackSession = fallbackSession
+        self.file = file
+        self.resumedAfterCounts = state.last != nil
+    }
 
     mutating func consume(line: UnsafeRawBufferPointer) {
         if line.indexOf("\"session_meta\"", limit: 160) >= 0 {
@@ -100,6 +117,12 @@ struct CodexParser {
                 for i in events.indices where events[i].model == "unknown" {
                     events[i].model = model
                 }
+                // The count of rows written as `unknown` came with 9.0.1: a state an earlier version saved has none, so
+                // a resumed read that finds the model for the first time cannot tell and reads the file again from its
+                // start (the rows are keyed, the rewrite is exact; a state that knows its count is never read twice).
+                let unknownBefore = state.unknownRows.map { (count: Int) -> Bool in count > unknownThisRead } ?? resumedAfterCounts
+                if unknownBefore { needsRestart = true }
+                state.unknownRows = nil
             }
             state.model = model
         }
@@ -150,6 +173,10 @@ struct CodexParser {
         let tokens = delta.counts
         guard !tokens.isZero else { return }
 
+        if state.model == nil {
+            state.unknownRows = (state.unknownRows ?? 0) + 1
+            unknownThisRead += 1
+        }
         let session = state.sessionID ?? fallbackSession
         let epoch = state.epoch.map { ":e\($0)" } ?? ""
         let key = "cx:\(session)\(epoch):\(total.total)"

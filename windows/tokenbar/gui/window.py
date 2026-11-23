@@ -29,6 +29,9 @@ class MainWindow:
         self.jobs: queue.Queue = queue.Queue()
         self.on_offline_changed = None      # the tray menu's tick follows the window's switch
         self.report = None
+        self._refresh_seq = 0               # the newest report asked for: an older one that ends later is dropped
+        self._menu = None                   # the open menu and its variables (one set, replaced at every opening)
+        self._menu_vars: list = []
         self.status = ""
         self.period_buttons: dict[str, tk.Label] = {}
         self._visible = False
@@ -162,6 +165,8 @@ class MainWindow:
 
     def refresh(self) -> None:
         period = self.model.period
+        self._refresh_seq += 1
+        seq = self._refresh_seq
 
         def work():
             try:
@@ -169,7 +174,7 @@ class MainWindow:
             except Exception as e:      # never let the window die on one bad read
                 self.jobs.put(("error", str(e)))
                 return
-            self.jobs.put(("report", report))
+            self.jobs.put(("report", (seq, report)))
         threading.Thread(target=work, daemon=True).start()
 
     def update_prices(self) -> None:
@@ -188,16 +193,27 @@ class MainWindow:
 
     # ------------------------------------------------------------------ the menu
     def _popup_menu(self, event=None) -> None:
-        m = tk.Menu(self.root, tearoff=0, font=self._font(10))
+        # Built again at every opening (the ticks follow the settings), and the one before is destroyed with the
+        # variables its entries held: a menu and a variable that are only dropped stay in Tcl for good.
+        if self._menu is not None:
+            try:
+                self._menu.destroy()
+            except tk.TclError:
+                pass
+        self._menu_vars = []
+        m = self._menu = tk.Menu(self.root, tearoff=0, font=self._font(10))
         m.add_command(label=t("Fiyatları güncelle", "Update prices"), command=self.update_prices)
         offline = tk.BooleanVar(value=self.model.offline)
+        self._menu_vars.append(offline)
         m.add_checkbutton(label=t("Çevrimdışı", "Offline"), variable=offline, command=lambda: self._toggle_offline(offline.get()))
         if startup.available():
             at_login = tk.BooleanVar(value=startup.is_enabled())
+            self._menu_vars.append(at_login)
             m.add_checkbutton(label=t("Windows ile başlat", "Start with Windows"), variable=at_login,
                               command=lambda: startup.set_enabled(at_login.get()))
         lang = tk.Menu(m, tearoff=0)
         current = tk.StringVar(value=self.model.settings["language"])
+        self._menu_vars.append(current)
         for code, label in (("auto", t("Otomatik", "Automatic")), ("tr", "Türkçe"), ("en", "English")):
             lang.add_radiobutton(label=label, value=code, variable=current, command=lambda c=code: self._set_language(c))
         m.add_cascade(label=t("Dil", "Language"), menu=lang)
@@ -240,26 +256,42 @@ class MainWindow:
         self.status_label.configure(text=text, fg=self.pal["dim"])
 
     def _poll(self) -> None:
+        """Serves the jobs the worker threads posted, then plans the next turn whatever happened: a job that fails
+        costs that job, never the loop (a window that stops polling shows nothing new again)."""
         try:
             while True:
-                kind, payload = self.jobs.get_nowait()
-                if kind == "report":
-                    self.report = payload
-                    self._paint_report()
-                elif kind == "scanned":
-                    self._after_scan(payload)
-                elif kind == "prices":
-                    self._after_prices(payload)
-                elif kind == "error":
-                    self.set_status(payload)
-                elif kind == "refresh":
-                    self.refresh()
-                elif kind == "bgscan":
-                    if self._visible:
-                        self._after_scan(self.model.last_scan)
-        except queue.Empty:
-            pass
-        self.root.after(150, self._poll)
+                try:
+                    kind, payload = self.jobs.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    self._serve(kind, payload)
+                except Exception:
+                    pass
+        finally:
+            try:
+                self.root.after(150, self._poll)
+            except tk.TclError:         # the window is gone
+                pass
+
+    def _serve(self, kind, payload) -> None:
+        if kind == "report":
+            seq, report = payload
+            if seq != self._refresh_seq:        # a newer request is under way (the period changed): this one is stale
+                return
+            self.report = report
+            self._paint_report()
+        elif kind == "scanned":
+            self._after_scan(payload)
+        elif kind == "prices":
+            self._after_prices(payload)
+        elif kind == "error":
+            self.set_status(payload)
+        elif kind == "refresh":
+            self.refresh()
+        elif kind == "bgscan":
+            if self._visible:
+                self._after_scan(self.model.last_scan)
 
     def _after_scan(self, result) -> None:
         if result is None:
