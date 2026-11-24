@@ -2,6 +2,7 @@
 import http.server
 import json
 import os
+import sys
 import threading
 
 import pytest
@@ -110,6 +111,7 @@ def test_devin_transcript_after_sessions_db_replaces_its_rows_even_for_a_session
     assert not [k for k in keys if ":db:" in k], keys                        # the database rows are gone
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="scripts/oracle.py is the macOS twin (it reads the macOS tool folders and imports pwd)")
 def test_devin_session_named_adj_counts_like_the_oracle(home):
     from test_winfix import _devin_db
     _devin_db(home, "adj")

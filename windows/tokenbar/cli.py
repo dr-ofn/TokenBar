@@ -97,7 +97,7 @@ def run_cli(argv: list[str]) -> int:
     if args.home:
         # Read by its real path, so two spellings of one home (a link, a different case) are one set of files.
         try:
-            args.home = os.path.realpath(args.home)
+            args.home = _real_path(args.home)
         except (OSError, ValueError) as e:       # a name the system cannot take (an embedded NUL): said, not a traceback
             print("tokenbar: " + display_safe(t("--home çözülemedi", "cannot resolve --home") + f" ({args.home!r}): {e}"), file=sys.stderr)
             return 2
@@ -108,7 +108,7 @@ def run_cli(argv: list[str]) -> int:
     own = Env.from_os()
     db_path = args.db or (home_index_path(own, args.home) if args.home else own.db_path())
     try:
-        at_default = args.rebuild and os.path.normcase(os.path.realpath(db_path)) == os.path.normcase(os.path.realpath(own.db_path()))
+        at_default = args.rebuild and os.path.normcase(_real_path(db_path)) == os.path.normcase(os.path.realpath(own.db_path()))
     except (OSError, ValueError) as e:
         print("tokenbar: " + display_safe(t("--db çözülemedi", "cannot resolve --db") + f" ({db_path!r}): {e}"), file=sys.stderr)
         return 2
@@ -167,6 +167,14 @@ def render_text(report, window: str) -> str:
     if not report.harnesses:
         lines.append(t("  (bu aralıkta çağrı yok)", "  (no calls in this window)"))
     return "\n".join(lines)
+
+
+def _real_path(path):
+    """os.path.realpath that refuses a name no file system can hold: on Windows realpath passes an embedded NUL through
+    (POSIX raises ValueError), and the scan would then fail once per source instead of once here."""
+    if "\x00" in path:
+        raise ValueError("embedded null character in path")
+    return os.path.realpath(path)
 
 
 def home_index_path(own: Env, home: str) -> str:

@@ -393,7 +393,10 @@ public final class PriceFeed: @unchecked Sendable {
             return report
         }
         // What the disk would not take earlier is offered again: once it does, the problem is over.
-        for (source, kept) in Self.unsavedLock.withLock({ Self.unsaved[unsavedKey]?.caches ?? [:] }) {
+        let held: [PriceSource: CacheFile] = Self.unsavedLock.withLock { () -> [PriceSource: CacheFile] in
+            Self.unsaved[unsavedKey]?.caches ?? [:]
+        }
+        for (source, kept) in held {
             writeCache(source, winners: kept.rows, exact: kept.exact, etag: kept.etag, fetched: kept.fetched)
         }
         let heldFailures = Self.unsavedLock.withLock { Self.unsaved[unsavedKey]?.failed != nil }

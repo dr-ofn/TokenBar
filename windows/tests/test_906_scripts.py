@@ -137,6 +137,7 @@ def test_snapshot_builder_refuses_a_row_that_fails_the_sanity_rule(tmp_path, mon
 
 
 # ---------------------------------------------------------------- oracle.py counts a call whose id is `adj` as the apps do
+@pytest.mark.skipif(sys.platform == "win32", reason="scripts/oracle.py is the macOS twin (it reads the macOS tool folders and imports pwd)")
 def test_oracle_counts_calls_whose_id_is_adj_like_the_app(home):
     cost = '{"type":"cost-state",' + json.dumps({"sessionId": "s1", "startTime": "2026-11-06T10:00:00.000Z",
         "modelUsage": {"claude-haiku-5-5": {"inputTokens": 620}}}, separators=(",", ":"))[1:] + "\n"
