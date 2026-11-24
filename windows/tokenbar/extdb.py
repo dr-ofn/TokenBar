@@ -345,17 +345,14 @@ def zstd_lines(path: str):
     zstd_decompress(_EMPTY_FRAME)                       # a missing decoder is one ZstdMissing, before the file is opened
     pending = bytearray()
     total = 0
-    first = True
 
     def decode(raw) -> str:
-        nonlocal first
         raw = bytes(raw)
-        if first:
-            # A UTF-8 BOM in front of the first line is no content (`iter_lines` and the Mac app's JSON parser agree):
-            # left in, the session_meta line does not parse and a fork's repeated history is counted again.
-            first = False
-            if raw.startswith(b"\xef\xbb\xbf"):
-                raw = raw[3:]
+        # A UTF-8 BOM in front of a line is no content, in front of any line (the Mac app's JSON parser reads each line
+        # on its own, as `iter_lines` does): left in, the session_meta line does not parse and a fork's repeated history
+        # is counted again.
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raw = raw[3:]
         return raw.decode("utf-8", "replace").rstrip("\r")
 
     for chunk in _zstd_chunks(path=path):

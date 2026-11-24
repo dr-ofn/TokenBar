@@ -220,11 +220,12 @@ class Store:
                 safe_text(e.session), e.cw1h, safe_text(file))
 
     def apply(self, updates) -> None:
-        """updates: list of (FileRecord | None, [Event], retire keys, cost rows), written in one transaction."""
+        """updates: list of (FileRecord | None, [Event], retire keys, cost rows[, [(meta key, value)]]), written in one
+        transaction: a file's record and the meta rows that belong to it (a bad-file verdict) stand or fall together."""
         with self._lock:
             self.db.execute("BEGIN IMMEDIATE")
             try:
-                for record, events, retire, costs in updates:
+                for record, events, retire, costs, *extra in updates:
                     keys, prefixes = retire if isinstance(retire, tuple) else (retire, [])
                     keys, prefixes = [safe_text(k) for k in keys], [safe_text(p) for p in prefixes]
                     if record is not None:
@@ -254,6 +255,9 @@ class Store:
                         if record.stamp is not None:
                             self.db.execute("INSERT INTO meta(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
                                             (DBSTAMP + record.path, record.stamp))
+                    for k, v in (extra[0] if extra else []):
+                        self.db.execute("INSERT INTO meta(k, v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v",
+                                        (safe_text(k), safe_text(v)))
                 self.db.execute("COMMIT")
             except BaseException:
                 self.db.execute("ROLLBACK")
@@ -331,13 +335,16 @@ class Store:
             s[5] = min(s[5], provider)       # MIN(provider), as the Mac app: not whichever row came first
         return {k: (tuple(v) if with_provider else tuple(v[:4])) for k, v in out.items()}
 
-    def events_since(self, cutoff: float | None):
-        """Rows (key, provider, model, ts, input, cr, cw, output, reasoning, cw1h) of one window."""
+    def events_since(self, cutoff: float | None, until: float | None = None):
+        """Rows (key, provider, model, ts, input, cr, cw, output, reasoning, cw1h) of one window: cutoff <= ts <= until
+        (no `cutoff` = every row, `until` ignored)."""
         sql = "SELECT key, provider, model, ts, input, cr, cw, output, reasoning, cw1h FROM events"
         with self._lock:
             if cutoff is None:
                 return self.db.execute(sql).fetchall()
-            return self.db.execute(sql + " WHERE ts >= ?", (cutoff,)).fetchall()
+            if until is None:
+                return self.db.execute(sql + " WHERE ts >= ?", (cutoff,)).fetchall()
+            return self.db.execute(sql + " WHERE ts >= ? AND ts <= ?", (cutoff, until)).fetchall()
 
     def event_count(self) -> int:
         with self._lock:

@@ -6,6 +6,11 @@ public struct UsageBook: Sendable {
 
     init(reports: [Period: UsageReport]) { self.reports = reports }
 
+    /// A period other than `all` counts the calls from its start up to this many seconds after now: a clock that runs a
+    /// little fast still counts, a call dated years ahead (a corrupt log, a wrong date) does not land in every period.
+    /// `all` counts every call. The same rule, and the same number, as the Windows app (store.py).
+    public static let futureSlackSeconds: Double = 86400
+
     public func report(for period: Period) -> UsageReport {
         reports[period] ?? UsageReport(period: period, stats: [])
     }
@@ -90,6 +95,8 @@ struct UsageBookBuilder {
     private struct Sheet {
         var period: Period
         var since: Double
+        /// The latest time the period counts; every time for `all`.
+        var until: Double
         var grid: Grid
         var lines: [Key: Line] = [:]
     }
@@ -101,6 +108,7 @@ struct UsageBookBuilder {
     init(now: Double, earliest: Double?) {
         sheets = Period.allCases.map { period in
             Sheet(period: period, since: period.seconds.map { now - $0 } ?? -.infinity,
+                  until: period.seconds == nil ? .infinity : now + UsageBook.futureSlackSeconds,
                   grid: Grid(period: period, now: now, earliest: earliest))
         }
     }
@@ -121,7 +129,7 @@ struct UsageBookBuilder {
         prices[id] = info
         let parts = isAdjustment ? info.price.baseParts(tokens) : info.price.parts(tokens)
         let key = Key(harness: harness, model: id)
-        for index in sheets.indices where time >= sheets[index].since {
+        for index in sheets.indices where time >= sheets[index].since && time <= sheets[index].until {
             let grid = sheets[index].grid
             // Added in place: copying a line's bucket arrays for every row would slow a load.
             sheets[index].lines[key, default: Line(stat: ModelStat(harness: harness, info: info), buckets: grid.count)]

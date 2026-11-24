@@ -6,7 +6,7 @@ extension PriceBook {
     /// the report then says every source was skipped.
     @discardableResult
     public static func refreshNow() async -> PriceRefreshReport {
-        var config = PriceFeed.Config(offline: isOffline)
+        var config = feedConfig(offline: isOffline)
         config.shouldStop = { PriceBook.isOffline }
         config.ttl = 0
         config.retryAfterFailure = 0

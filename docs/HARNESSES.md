@@ -165,7 +165,7 @@ TokenBar prices a model from the price catalogues (see the README). When a model
 - `localProviders`: servers that run models on your own machines. A model on such a server, or with a local quantisation suffix such as `-4bit` or `-q4_k_m`, is priced as its cloud counterpart when one exists, and costs nothing when none does.
 - An alias for a short name also covers its account-numbered, effort-marked or context-sized variants (`my-model-high`, `my-model-256k`), marked as an approximation.
 - Names are matched the way TokenBar folds every model name: lower case, no provider path, `.` and `_` read as `-`.
-- The file may also be the aliases alone, without the `"aliases"` key. A missing or unreadable file means no aliases, never an error. With `TOKENBAR_PRICES_PINNED=1` (what the checks use) the file is ignored.
+- The file may also be the aliases alone, without the `"aliases"` key. A missing file, or one with no bytes, means no aliases and no message. A file that is there but cannot be read (not valid JSON, not a JSON object, no permission) means no aliases too, and the scan names it (`model-aliases.json`: the source warnings in the panel, stderr of `tokenbar-cli`) instead of leaving you with prices that silently differ. With `TOKENBAR_PRICES_PINNED=1` (what the checks use) the file is ignored.
 
 ## Adding a tool to TokenBar itself
 

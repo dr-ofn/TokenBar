@@ -12,10 +12,6 @@ public final class AppModel {
     /// Harness logs change constantly while agents run; file events scan this often at most.
     private static let eventScanSeconds = 15.0
     private static let timerSeconds = 60.0
-    /// How often the app asks the price feed whether a day has passed (as the Windows app does): the feed leaves a
-    /// cache younger than a day alone, so most asks cost a read of three small files and nothing else.
-    private static let priceCheckSeconds = 6.0 * 3600
-
     public var prefs = Preferences.load()
     public var book: UsageBook?
     public var report: UsageReport?
@@ -59,7 +55,6 @@ public final class AppModel {
     }
 
     public func start() {
-        PriceBook.startBackgroundRefresh()
         // New prices change the money of rows already in the book, so the book is read again.
         priceObserver = NotificationCenter.default.addObserver(forName: PriceBook.didChange, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.pricesChanged() }
@@ -73,11 +68,15 @@ public final class AppModel {
                 try? await Task.sleep(for: .seconds(Self.timerSeconds))
             }
         }
-        // The app may run for weeks: the prices are asked for again every few hours (the feed's one-day wait decides).
-        Task {
+        // The app may run for weeks: the prices are asked for at launch and then every few hours (the feed's one-day wait
+        // decides). After a failed pass the wait is an hour, twice as long with every failure in a row, six hours at most:
+        // the same rule as on Windows (`PriceSchedule`).
+        Task.detached(priority: .utility) {
+            var failures = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.priceCheckSeconds))
-                PriceBook.startBackgroundRefresh()
+                let report = await PriceBook.refreshInBackground()
+                failures = PriceSchedule.failures(after: report, was: failures)
+                try? await Task.sleep(for: .seconds(PriceSchedule.wait(failuresInARow: failures, retryIn: report?.retryIn)))
             }
         }
     }

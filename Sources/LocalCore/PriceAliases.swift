@@ -29,6 +29,13 @@ public struct UserAliases: Sendable {
     /// Provider names in `ModelNames.providerKey` spelling.
     public var localProviders: Set<String> = []
 
+    /// Why the file is not in use when it is there and cannot be read (not JSON, not an object, no permission), in the
+    /// interface language; nil when it is fine, missing or has no bytes. Said as a scan issue, never skipped.
+    public var issue: String?
+
+    /// The file's name, as the scan issue names it.
+    public static let fileName = "model-aliases.json"
+
     public static let empty = UserAliases()
 
     public init() {}
@@ -38,14 +45,28 @@ public struct UserAliases: Sendable {
     /// The alias file of a home folder (`tokenbar-cli --home DIR` reads DIR's, like it reads DIR's custom sources).
     public static func path(home: String) -> String { home + "/.config/tokenbar/model-aliases.json" }
 
-    /// The file's aliases; an unreadable, missing or foreign file is no aliases, never an error.
+    /// The file's aliases. A file that is not there, or has no bytes, is no aliases and no problem. One that is there and
+    /// cannot be used (no permission, not JSON, not an object) is no aliases either, and `issue` says so (as on Windows).
     public static func load(path: String = defaultPath) -> UserAliases {
-        guard let data = FileManager.default.contents(atPath: path) else { return .empty }
+        guard let data = FileManager.default.contents(atPath: path) else {
+            var unread = UserAliases()
+            if FileManager.default.fileExists(atPath: path) {
+                unread.issue = L10n.t("dosya okunamadı; takma adlar kullanılmadı", "the file could not be read; the aliases are not used")
+            }
+            return unread
+        }
         return UserAliases(json: data)
     }
 
     public init(json data: Data) {
-        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+        // Fragments are read too, to tell a file that is not JSON from one that is JSON but not an object; `null` says nothing.
+        let parsed = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        guard let root = parsed as? [String: Any] else {
+            if !data.isEmpty && !(parsed is NSNull) {
+                issue = L10n.t("geçerli bir JSON nesnesi değil; takma adlar kullanılmadı", "not a valid JSON object; the aliases are not used")
+            }
+            return
+        }
         let aliases = (root["aliases"] as? [String: Any]) ?? (root["localProviders"] != nil ? [:] : root)
         // Names that fold to one key ("My-Model", "my_model"): the last one in the file wins, as on Windows. A dictionary
         // has no order, so the text is asked for it; without one (it cannot be scanned) the names go in sorted order.

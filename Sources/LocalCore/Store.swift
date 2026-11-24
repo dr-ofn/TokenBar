@@ -326,22 +326,33 @@ public final class UsageStore {
     /// Per session and model, what the rows under `prefix` add up to. `excluding` is a
     /// prefix inside it whose rows don't count.
     public func sums(prefix: String, excluding: String) throws -> [SessionSum] {
+        // Added up here, not by SQL SUM: SQLite stops a sum of integers that passes Int64 with an "integer overflow"
+        // error, and a damaged log can leave rows that each hold the field limit. `+=` on TokenCounts stops at the limit.
         let st = try db.prepare("""
-        SELECT session, model, MIN(provider), SUM(input), SUM(cr), SUM(cw), SUM(output), SUM(reasoning)
+        SELECT session, model, provider, input, cr, cw, output, reasoning
         FROM events WHERE key >= ? AND key < ? AND NOT (key >= ? AND key < ?)
-        GROUP BY session, model
         """)
         st.bind(1, prefix)
         st.bind(2, Self.upperBound(prefix))
         st.bind(3, excluding)
         st.bind(4, Self.upperBound(excluding))
-        var out: [SessionSum] = []
+        var sums: [String: SessionSum] = [:]
+        var order: [(session: String, model: String)] = []
         while try st.step() {
-            out.append(SessionSum(session: st.string(0) ?? "", model: st.string(1) ?? "", provider: st.string(2) ?? "",
-                                  tokens: TokenCounts(input: st.int(3), cacheRead: st.int(4), cacheWrite: st.int(5),
-                                                      output: st.int(6), reasoning: st.int(7))))
+            let session = st.string(0) ?? "", model = st.string(1) ?? "", provider = st.string(2) ?? ""
+            let tokens = TokenCounts(input: st.int(3), cacheRead: st.int(4), cacheWrite: st.int(5),
+                                     output: st.int(6), reasoning: st.int(7))
+            let id = session + "\u{0}" + model
+            if var sum = sums[id] {
+                sum.tokens += tokens
+                if provider.utf8.lexicographicallyPrecedes(sum.provider.utf8) { sum.provider = provider }
+                sums[id] = sum
+            } else {
+                sums[id] = SessionSum(session: session, model: model, provider: provider, tokens: tokens)
+                order.append((session, model))
+            }
         }
-        return out
+        return order.compactMap { sums[$0.session + "\u{0}" + $0.model] }
     }
 
     public struct SessionSum: Sendable {

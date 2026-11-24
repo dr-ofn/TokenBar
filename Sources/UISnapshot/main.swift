@@ -190,6 +190,45 @@ func contrastChecks() -> Int {
     return failed
 }
 
+/// Token counts at the limit in two models that have no price (a damaged log): their sum passes Int64. The picture, the menu
+/// icon, the panel and the dashboard draw it; they never trap. Own home and index, never this Mac's.
+@MainActor func hugeCountChecks(_ lang: Lang) async -> Int {
+    L10n.setLanguage(lang)
+    defer { L10n.setLanguage(nil) }
+    var failed = 0
+    func expect(_ name: String, _ cond: Bool) {
+        print((cond ? "ok   " : "FAIL ") + "[\(lang.rawValue)] " + name)
+        if !cond { failed += 1 }
+        fflush(stdout)
+    }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tokenbar-huge-\(UUID().uuidString.prefix(8))").path
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    guard let store = try? UsageStore(path: dir + "/u.sqlite") else { print("FAIL dizin açılamadı"); return 1 }
+    let now = Date().timeIntervalSince1970
+    func huge(_ key: String, _ model: String) -> UsageEvent {
+        UsageEvent(key: key, provider: "test", model: model, timestamp: now - 60,
+                   tokens: TokenCounts(input: .max, cacheRead: .max, cacheWrite: .max, output: .max), session: key, file: "test")
+    }
+    try? store.insertEvents([huge("cc:a", "zz-never-listed-a"), huge("cc:b", "zz-never-listed-b")])
+    guard let book = try? store.usageBook() else { print("FAIL dizin okunamadı"); return failed + 1 }
+    let report = book.report(for: .all)
+    expect("limitte iki fiyatsız model iki çağrı", report.callCount == 2 && report.groups.count == 2 && report.groups.allSatisfy { $0.cost == 0 })
+    let layout = RibbonLayout(report: report, width: 460, height: 620, leftColumn: 104, rightColumn: 186, top: 40, bottomMargin: 12)
+    expect("şerit düzeni kuruldu ve fiyatsız satır sayıyı yazıyor", layout.ribbons.count == 2 && layout.rightLabels.last?.extra != nil && layout.freeShare > 0)
+    expect("menü simgesi çizildi", RibbonIcon.render(report) != nil)
+    let model = AppModel(engine: Engine(home: dir, dbPath: dir + "/engine-model.sqlite"))
+    model.book = book
+    model.report = report
+    for stage in [RibbonStage(), { let s = RibbonStage(); s.selected = .total; return s }(),
+                  { let s = RibbonStage(); s.selected = .list(UsageText.unpricedModelsTitle, report.groups.map(\.key)); return s }()] {
+        let panel = await hostedControls(PanelView(model: model, stage: stage), size: PanelView.fixedSize)
+        let dashboard = await hostedControls(DashboardView(model: model, stage: stage), size: DashboardView.defaultSize)
+        expect("panel ve pano çökmeden çiziliyor (menü var)", panel >= 1 && dashboard >= 1)
+    }
+    return failed
+}
+
 /// The list of detected tools, the stage's two panels and what a price change does to a report.
 @MainActor func detectedAndPriceChecks(_ lang: Lang) async -> Int {
     L10n.setLanguage(lang)
@@ -352,6 +391,8 @@ final class Hits: @unchecked Sendable {
     failed += await menuReachabilityChecks(.en)
     failed += await detectedAndPriceChecks(.tr)
     failed += await detectedAndPriceChecks(.en)
+    failed += await hugeCountChecks(.tr)
+    failed += await hugeCountChecks(.en)
     failed += contrastChecks()
     print(failed == 0 ? "UI SELF-CHECK OK" : "\(failed) UI SELF-CHECK FAILED")
     return failed == 0 ? 0 : 1

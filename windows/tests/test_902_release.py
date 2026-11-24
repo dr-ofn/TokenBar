@@ -148,13 +148,14 @@ def test_audit_stops_when_the_tag_exists_on_origin_but_not_here(tmp_path):
 
 
 @t.needs_shell
-def test_audit_warns_and_does_not_claim_a_check_when_origin_cannot_be_reached(tmp_path):
+def test_audit_fails_and_does_not_claim_a_check_when_origin_cannot_be_reached(tmp_path):
     work = t._release_repo(tmp_path)
     t._git(work, "remote", "set-url", "origin", str(tmp_path / "nowhere.git"))
     t._git(work, "update-ref", "refs/remotes/origin/main", "HEAD")      # HEAD still counts as pushed (the last fetch)
     r = t._audit(work)
     assert "could not look at origin" in r.stderr and "NOT checked" in r.stderr, r.stderr
-    assert r.returncode == 0 and "remote tag not checked" in r.stdout, (r.returncode, r.stdout)
+    # 9.0.4: no longer a pass with a warning ("a release is made once" cannot be vouched for without looking at origin)
+    assert r.returncode == 1 and "OK" not in r.stdout, (r.returncode, r.stdout)
 
 
 @t.needs_shell

@@ -27,6 +27,7 @@ import oracle_g1
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import oracle_g2
 
+FUTURE_SLACK_SECONDS = 86400
 WINDOW_SECONDS = {"1h": 3600, "5h": 5 * 3600, "24h": 24 * 3600,
                   "7d": 7 * 24 * 3600, "30d": 30 * 24 * 3600, "all": None}
 HOME = os.path.expanduser("~")
@@ -558,7 +559,11 @@ def main():
     if window not in WINDOW_SECONDS:
         sys.exit(f"unknown window: {window}")
     span = WINDOW_SECONDS[window]
-    cutoff = time.time() - span if span else None
+    now = time.time()
+    cutoff = now - span if span else None
+    # A bounded window counts up to a day past now (a clock a little fast), never a call dated years ahead; `all` counts every call.
+    # The same rule as UsageBook.futureSlackSeconds (Swift) and the Windows store.
+    ceiling = now + FUTURE_SLACK_SECONDS if span else None
 
     claude()
     codex()
@@ -587,7 +592,7 @@ def main():
 
     harnesses, total, calls, cost, unpriced = {}, 0, 0, 0.0, set()
     for key, (ts, model, counts) in best.items():
-        if cutoff is not None and ts < cutoff:
+        if cutoff is not None and not cutoff <= ts <= ceiling:
             continue
         t = sum(counts[:4])
         adjustment = key.split(":")[1] == "adj"

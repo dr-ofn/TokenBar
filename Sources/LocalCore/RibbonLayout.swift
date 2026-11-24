@@ -192,7 +192,8 @@ public struct RibbonLayout: Sendable {
                                      extra: nil, harness: nil, anchor: bottom - freeGap - 2, y: 0, strong: false))
         }
         if !free.isEmpty {
-            let freeTokens = free.reduce(Int64(0)) { $0 + $1.tokens }
+            // Stops at the limit: two models of a damaged log can each hold Int64.max / 4 times four.
+            let freeTokens = free.reduce(Int64(0)) { TokenCounts.saturatingSum($0, $1.tokens) }
             freeShare = total > 0 ? Double(freeTokens) / total : 0
             rightLabels.append(Label(selection: .list(UsageText.unpricedModelsTitle, free.map(\.key)),
                                      title: Self.zeroCostTitle(free: free.map(\.key), unpriced: Set(report.unpriced.map(\.group))), value: "$0",

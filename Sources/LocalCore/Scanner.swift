@@ -120,6 +120,7 @@ public final class UsageScanner {
         catalog.register()
         var result = ScanResult()
         result.issues += catalog.issues
+        if let problem = PriceBook.aliasIssue { result.issues.append(SourceIssue(source: UserAliases.fileName, message: problem)) }
         readThisPass = []
         pairStamps = [:]
         do { try store.repairZeroDates() } catch { result.issues.append(SourceIssue(source: "index", message: L10n.t("tarih onarımı: \(error)", "date repair: \(error)"))) }

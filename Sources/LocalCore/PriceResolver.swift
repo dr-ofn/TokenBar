@@ -28,6 +28,7 @@ final class PriceResolver: @unchecked Sendable {
     }
 
     var date: String { catalogs.date ?? priceTableDate }
+    var aliasIssue: String? { aliases.issue }
 
     func resolve(provider: String, model: String) -> PriceEntry? {
         let id = ModelNames.providerKey(provider) + "\u{0}" + model

@@ -156,13 +156,16 @@ def loads(s: str | bytes) -> Any:
         return None
 
 
-def decode_json_bytes(raw: bytes) -> str:
+def decode_json_bytes(raw: bytes, strict: bool = False) -> str:
     """The text of a JSON document in the encodings Foundation's JSON reader (the Mac app's) takes: UTF-8 (with or
     without a BOM) and UTF-16 either way round, told by the BOM or, without one, by where the zero byte of the first
-    character is (UTF-32 is not read there either: it is named as not valid JSON). PowerShell 5's `>` writes UTF-16 LE with a BOM: read as UTF-8 that is garbage."""
+    character is (UTF-32 is not read there either: it is named as not valid JSON). PowerShell 5's `>` writes UTF-16 LE with a BOM: read as UTF-8 that is garbage.
+    A byte that is no UTF-8 becomes U+FFFD (a log is read as far as it can be), or with `strict` raises UnicodeDecodeError
+    (a file the user wrote, which the Mac app takes as unreadable)."""
+    errors = "strict" if strict else "replace"
     head = raw[:4]
     if head.startswith(b"\xef\xbb\xbf"):
-        return raw[3:].decode("utf-8", "replace")
+        return raw[3:].decode("utf-8", errors)
     if head.startswith(b"\xff\xfe"):
         return raw[2:].decode("utf-16-le", "replace")
     if head.startswith(b"\xfe\xff"):
@@ -171,15 +174,16 @@ def decode_json_bytes(raw: bytes) -> str:
         return raw.decode("utf-16-be", "replace")
     if len(head) >= 2 and head[0] != 0 and head[1] == 0:
         return raw.decode("utf-16-le", "replace")
-    return raw.decode("utf-8", "replace")
+    return raw.decode("utf-8", errors)
 
 
-def _load_json_text(path: str) -> Any:
-    """json.load of a file in any of those encodings. Raises what `open`, `getsize` and `json` raise."""
+def _load_json_text(path: str, strict_utf8: bool = False) -> Any:
+    """json.load of a file in any of those encodings. Raises what `open`, `getsize` and `json` raise (and, with
+    `strict_utf8`, UnicodeDecodeError for a UTF-8 file with a byte that is none)."""
     if os.path.getsize(longpath(path)) > MAX_JSON_FILE_BYTES:
         raise ValueError("file too large")
     with open(longpath(path), "rb") as f:
-        return json.loads(decode_json_bytes(f.read()))
+        return json.loads(decode_json_bytes(f.read(), strict_utf8))
 
 
 def load_json_file(path: str) -> Any:
@@ -195,11 +199,13 @@ def load_optional_json(path: str) -> tuple[Any, str | None]:
     """(document, problem) of a file the user may have written: a file that is not there is no problem; one that is
     there and cannot be used (another program holds it, too large, not JSON) is a problem that is said, not skipped."""
     try:
-        return _load_json_text(path), None
+        return _load_json_text(path, strict_utf8=True), None
     except FileNotFoundError:
         return None, None
     except OSError as e:
         return None, f"{path}: {type(e).__name__}: {e}"
+    except UnicodeDecodeError:
+        return None, f"{path}: not valid UTF-8"
     except JSON_ERRORS as e:
         try:
             if os.path.getsize(longpath(path)) == 0:       # a file of no bytes says nothing
@@ -253,7 +259,7 @@ def iter_lines(path: str, start: int = 0, limit: int | None = None, settled: boo
 
     A final line without a newline is delivered only when `settled` (the file has been quiet long enough
     that it is complete). Lines over MAX_LINE_BYTES are skipped, not loaded. CR before LF is removed;
-    the very first line loses a UTF-8 BOM. Raises OSError when the file cannot be opened.
+    a UTF-8 BOM in front of any line is dropped. Raises OSError when the file cannot be opened.
     """
     with open(longpath(path), "rb") as f:
         if start:
@@ -280,14 +286,14 @@ def iter_lines(path: str, start: int = 0, limit: int | None = None, settled: boo
                 # half by a writer must not be consumed (the offset would move past it for good).
                 if not settled:
                     return
-                # (a BOM at the very start is no content: BOM and blanks alone leave nothing to wait for)
-                body = chunk[3:] if pos == 0 and chunk.startswith(b"\xef\xbb\xbf") else chunk
+                # (a BOM in front of the line is no content: BOM and blanks alone leave nothing to wait for)
+                body = chunk[3:] if chunk.startswith(b"\xef\xbb\xbf") else chunk
                 if body.strip():
                     if not _is_json(chunk):
                         return
                 # (blanks only: nothing is left to wait for, the cursor moves to the end)
             pos = end
-            if chunk.startswith(b"\xef\xbb\xbf") and end - len(chunk) == 0:
+            if chunk.startswith(b"\xef\xbb\xbf"):      # as the Mac app, which parses every line on its own
                 chunk = chunk[3:]
             line = chunk.decode("utf-8", "replace").rstrip("\r\n")
             if line.strip():

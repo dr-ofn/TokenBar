@@ -1,5 +1,16 @@
 # Changelog
 
+## 9.0.4 — 2026-11-24
+Patch release: fixes for defects a review of the published 9.0.3 found and reproduced.
+
+- **Mac: no crash on huge counts.** A damaged log holding huge token counts for two models that have no price made the app crash on every launch; the panel's totals now saturate instead. The index totals saturate the same way, so a cost-state correction is no longer lost when they overflow.
+- **Calls dated in the future.** A call dated more than a day ahead of now no longer counts in the 1 hour to 30 day periods (a clock set wrong, an edited log); **All** still counts it. The same rule on the Mac and Windows.
+- **`model-aliases.json` that cannot be read.** On the Mac a file that exists but is not valid JSON (for example a note saved in a non-UTF-8 encoding), is not an object or cannot be opened is now reported among the scan warnings and by `tokenbar-cli`, as on Windows, instead of silently dropping all your price names. On Windows a file that is not valid UTF-8 is reported the same way.
+- **Price retries.** After a failed price update the Mac app asks again after an hour, then after two, four and at most six hours while failures continue (it waited six hours); Windows already did. `PRIVACY.md` and the READMEs describe this.
+- **Windows: byte-order marks.** A UTF-8 byte-order mark in front of any line of a log, not just the first, is ignored as on the Mac, so a forked Codex session whose header follows a blank line is no longer counted twice.
+- **Windows: index tidy-up.** The note about a log too large to unpack is dropped when the file is deleted, and it is written in the same step as the file's record.
+- **Command line and release.** `tokenbar-cli --home` on the Mac reads prices from that home's `Library/Caches/TokenBar`, not the real user's cache. The release audit fails, instead of passing with a warning, when GitHub cannot be reached to check the tag.
+
 ## 9.0.3 — 2026-11-24
 Patch release: fixes for defects a multi-model review of the published 9.0.2 found and reproduced.
 

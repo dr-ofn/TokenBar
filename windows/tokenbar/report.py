@@ -10,6 +10,9 @@ from .prices.engine import normalize
 from .util import clamp
 
 PERIODS = {"1h": 3600, "5h": 5 * 3600, "24h": 24 * 3600, "7d": 7 * 24 * 3600, "30d": 30 * 24 * 3600, "all": None}
+# A bounded window counts rows with since <= ts <= now + this; a row dated further ahead is a corrupt time (the Mac app,
+# Book.swift, holds the same rule). "all" counts everything.
+FUTURE_SLACK_SECONDS = 86400
 PERIOD_ORDER = ["1h", "5h", "24h", "7d", "30d", "all"]
 
 
@@ -73,9 +76,10 @@ def build_report(store, book, period: str = "24h", now: float | None = None) -> 
     if period not in PERIODS:
         raise ValueError(f"unknown window: {period}")
     span = PERIODS[period]
-    cutoff = (now if now is not None else time.time()) - span if span else None
+    now = now if now is not None else time.time()
+    cutoff = now - span if span else None
     stats: dict[tuple, ModelStat] = {}
-    for key, provider, model, ts, inp, cr, cw, out, rz, cw1h in store.events_since(cutoff):
+    for key, provider, model, ts, inp, cr, cw, out, rz, cw1h in store.events_since(cutoff, now + FUTURE_SLACK_SECONDS):
         adjustment = key.split(":", 2)[1:2] == ["adj"]
         harness = harness_of_key(key)
         s = stats.get((harness, provider, model))

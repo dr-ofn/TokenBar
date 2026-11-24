@@ -164,7 +164,7 @@ public enum PriceBook {
     /// The feed the app uses: the network is off when the setting or the environment says so, and a pass already
     /// running stops asking as soon as the setting turns on.
     public static func liveFeed() -> PriceFeed {
-        var config = PriceFeed.Config(offline: isOffline)
+        var config = feedConfig(offline: isOffline)
         config.shouldStop = { PriceBook.isOffline }
         return PriceFeed(config)
     }
@@ -172,6 +172,10 @@ public enum PriceBook {
     /// `TOKENBAR_PRICES_PINNED=1`: the embedded snapshot and the hand-made tables only. No cache file, no alias file,
     /// no network: the same prices on every machine (scripts/check.sh, the oracle and the tests run pinned).
     public static var isPinned: Bool { ProcessInfo.processInfo.environment["TOKENBAR_PRICES_PINNED"] == "1" }
+
+    /// Why the alias file in use (this home's) was not used, when it is there and cannot be read; nil otherwise and when
+    /// pinned. The scan names it among its issues.
+    public static var aliasIssue: String? { state().aliasIssue }
 
     // MARK: Lookup
 
@@ -210,17 +214,30 @@ public enum PriceBook {
     }
 
     /// Re-reads the cache files and the alias file (the embedded snapshot where a cache is missing).
-    public static func reload(feed: PriceFeed = PriceFeed()) {
-        install(catalogs: isPinned ? .embedded : feed.loadLocal(), aliases: isPinned ? .empty : loadAliases())
+    public static func reload(feed: PriceFeed? = nil) {
+        install(catalogs: isPinned ? .embedded : (feed ?? PriceFeed(feedConfig())).loadLocal(), aliases: isPinned ? .empty : loadAliases())
     }
 
-    /// Reads the alias file of this home folder from now on, not the process's own (`tokenbar-cli --home DIR`,
-    /// `Engine(home:)`). Call before the first price is looked up; a resolver already built is built again.
+    /// The feed's settings for the home folder in use: its cache is that home's `Library/Caches/TokenBar` when `useHome`
+    /// named a home other than the process's own, the process's own `~/Library/Caches/TokenBar` otherwise.
+    static func feedConfig(offline: Bool = PriceFeed.environmentOffline) -> PriceFeed.Config {
+        var config = PriceFeed.Config(offline: offline)
+        if let folder = lock.withLock({ cacheDirectoryValue }) { config.cacheDirectory = folder }
+        return config
+    }
+
+    /// Reads the alias file and the price cache of this home folder from now on, not the process's own
+    /// (`tokenbar-cli --home DIR`, `Engine(home:)`): an inspected home gets its own prices, never the account's, so a
+    /// run on a made-up home is the same on every machine. Call before the first price is looked up; a resolver
+    /// already built is built again.
     public static func useHome(_ home: String) {
         let path = UserAliases.path(home: home)
+        // The process's own home keeps the system's caches folder, exactly as before.
+        let cache: URL? = home == NSHomeDirectory() ? nil : URL(fileURLWithPath: home + "/Library/Caches/TokenBar", isDirectory: true)
         let rebuild = lock.withLock { () -> Bool in
-            let changed = aliasPathValue != path
+            let changed = aliasPathValue != path || cacheDirectoryValue != cache
             aliasPathValue = path
+            cacheDirectoryValue = cache
             return changed && current != nil
         }
         if rebuild { reload() }
@@ -231,15 +248,22 @@ public enum PriceBook {
     }
 
     /// Asks the network for fresher catalogues, in the background and at most once a day per source (the feed leaves
-    /// a cache younger than a day alone, so calling this again is cheap: the app calls it at launch, once a day while
-    /// it runs, and when the user turns Offline off); the first prices never wait for it. When something changed the
+    /// a cache younger than a day alone, so calling this again is cheap: the app calls it at launch, every few hours
+    /// while it runs, and when the user turns Offline off); the first prices never wait for it. When something changed the
     /// cache is reloaded and `revision` counts up. Does nothing when offline or pinned.
     public static func startBackgroundRefresh(feed: PriceFeed = PriceBook.liveFeed()) {
         guard !isOffline, !isPinned else { return }
-        Task.detached(priority: .utility) {
-            let report = await feed.refresh()
-            if report.changed { reload(feed: feed) }
-        }
+        Task.detached(priority: .utility) { await refreshInBackground(feed: feed) }
+    }
+
+    /// The same pass, awaited: what the app's own loop uses, so it can see whether the pass failed (`PriceSchedule`).
+    /// Nil when offline or pinned, where nothing is asked.
+    @discardableResult
+    public static func refreshInBackground(feed: PriceFeed = PriceBook.liveFeed()) async -> PriceRefreshReport? {
+        guard !isOffline, !isPinned else { return nil }
+        let report = await feed.refresh()
+        if report.changed { reload(feed: feed) }
+        return report
     }
 
     // MARK: State
@@ -248,13 +272,15 @@ public enum PriceBook {
     nonisolated(unsafe) private static var revisionValue = 0
     /// The alias file of the home folder in use; nil is the process's own home.
     nonisolated(unsafe) private static var aliasPathValue: String?
+    /// The price cache folder of the home folder in use; nil is the process's own.
+    nonisolated(unsafe) private static var cacheDirectoryValue: URL?
     nonisolated(unsafe) private static var offlineValue = false
     private static let lock = NSLock()
 
     private static func state() -> PriceResolver {
         if let c = lock.withLock({ current }) { return c }
         // Built outside the lock: reading cache files takes a moment. A second thread may build it too; the first wins.
-        let built = PriceResolver(catalogs: isPinned ? .embedded : PriceFeed().loadLocal(), override: priceTable,
+        let built = PriceResolver(catalogs: isPinned ? .embedded : PriceFeed(feedConfig()).loadLocal(), override: priceTable,
                                   aliases: isPinned ? .empty : loadAliases())
         return lock.withLock {
             if let c = current { return c }

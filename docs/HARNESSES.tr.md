@@ -165,7 +165,7 @@ TokenBar bir modeli fiyat kataloglarından fiyatlar (bkz. README). Çalıştırd
 - `localProviders`: kendi makinelerinde model çalıştıran sunucular. Böyle bir sunucudaki ya da `-4bit`, `-q4_k_m` gibi yerel kuantizasyon sonekli model, bulut karşılığı varsa onun fiyatından hesaplanır, yoksa maliyeti sıfırdır.
 - Kısa ad için yazılan takma ad, hesap numaralı, efor sözcüklü ya da bağlam boyutlu varyantlarını da (`my-model-high`, `my-model-256k`) yaklaşık olarak işaretleyerek kapsar.
 - Adlar TokenBar'ın bütün model adlarını katladığı gibi eşleşir: küçük harf, sağlayıcı yolu yok, `.` ve `_` `-` okunur.
-- Dosya `"aliases"` anahtarı olmadan yalnız takma adlardan da oluşabilir. Dosya yoksa ya da okunamıyorsa takma ad yoktur, hata değildir. `TOKENBAR_PRICES_PINNED=1` ile (kontrollerin kullandığı) dosya yok sayılır.
+- Dosya `"aliases"` anahtarı olmadan yalnız takma adlardan da oluşabilir. Dosya yoksa ya da hiç bayt içermiyorsa takma ad yoktur ve bir mesaj da yoktur. Dosya var ama okunamıyorsa (geçerli JSON değil, JSON nesnesi değil, izin yok) takma ad yine yoktur; tarama bunu `model-aliases.json` adıyla bildirir (panelin kaynak uyarıları, `tokenbar-cli`nin stderr çıktısı), fiyatlar sessizce değişmiş kalmaz. `TOKENBAR_PRICES_PINNED=1` ile (kontrollerin kullandığı) dosya yok sayılır.
 
 ## TokenBar'ın kendisine araç eklemek
 

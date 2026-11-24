@@ -4,8 +4,8 @@
 # Checks, all of them, then exits 1 if any failed:
 #   - the git work tree is clean (nothing modified, staged or untracked): the zip is built from the work tree, the tag
 #     names a commit, and the two must be the same code;
-#   - the tag v VERSION does not exist yet, here or on origin (git ls-remote; when origin cannot be reached this says so and
-#     does not count the remote as checked);
+#   - the tag v VERSION does not exist yet, here or on origin (git ls-remote; when origin cannot be reached the audit FAILS:
+#     a release is made once, and that cannot be vouched for without looking at origin);
 #   - HEAD is on a remote branch (it has been pushed; judged from the remote-tracking refs, no network is used);
 #   - VERSION (the file), windows/tokenbar/__init__.py and windows/pyproject.toml all say VERSION, CHANGELOG.md has a
 #     "## VERSION" heading, and Resources/Info.plist is either the __VERSION__ placeholder or VERSION.
@@ -27,7 +27,6 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
 fi
 BASE="${VERSION%%-*}"            # X.Y.Z: what every version file says, whatever the suffix of the tag
 PRERELEASE=0; [[ "$VERSION" == *-* ]] && PRERELEASE=1
-remote_note=""
 bad=0
 fail() { echo "release audit: $1" >&2; bad=1; }
 
@@ -52,9 +51,8 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   remote_err="$(head -c 2000 "$remote_err_file" 2>/dev/null)"
   [ "$remote_err_file" = /dev/null ] || rm -f "$remote_err_file"
   if [ "$remote_rc" -ne 0 ]; then
-    echo "release audit: warning: could not look at origin for the tag v$VERSION (git ls-remote exit $remote_rc): the remote tag was NOT checked" >&2
+    fail "could not look at origin for the tag v$VERSION (git ls-remote exit $remote_rc): the remote tag was NOT checked, so the audit cannot pass (reach origin and run it again)"
     [ -z "$remote_err" ] || echo "$remote_err" | head -5 | sed 's/^/release audit:   git said: /' >&2
-    remote_note=" (remote tag not checked: origin could not be reached)"
   elif [ -n "$remote_tags" ]; then
     fail "the tag v$VERSION already exists on origin (a release is made once; pick a new version)"
   elif [ -n "$remote_err" ]; then
@@ -101,4 +99,4 @@ if [ "$bad" -ne 0 ]; then
   echo "release audit: FAILED, nothing was built" >&2
   exit 1
 fi
-echo "release audit: OK ($VERSION)$remote_note"
+echo "release audit: OK ($VERSION)"

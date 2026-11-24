@@ -159,6 +159,9 @@ public struct PriceRefreshReport: Sendable {
     public var fresh: [PriceSource] = []
     public var failed: [PriceSource: String] = [:]
     public var skipped: [PriceSource] = []
+    /// Seconds until the soonest remembered failure (one a source had before this pass, which left it alone) is over,
+    /// when the pass skipped a source for that. The app asks again then, not after the full wait.
+    public var retryIn: TimeInterval?
 
     public init() {}
 
@@ -321,6 +324,8 @@ public final class PriceFeed: @unchecked Sendable {
             }
             if let last = failed[source.rawValue], now.timeIntervalSince1970 - last < config.retryAfterFailure, now.timeIntervalSince1970 >= last {
                 report.skipped.append(source)
+                let left = last + config.retryAfterFailure - now.timeIntervalSince1970
+                report.retryIn = Swift.min(report.retryIn ?? left, left)
                 continue
             }
             do {
@@ -360,5 +365,34 @@ public final class PriceFeed: @unchecked Sendable {
         }
         done.wait()
         return box.report
+    }
+}
+
+/// When the running app asks the price feed again (the Windows app's rule, `PRICE_CHECK_SECONDS` and `PRICE_RETRY_SECONDS`
+/// in gui/app.py): every six hours while all goes well (the feed's one-day wait decides whether that asks the network at
+/// all); after a failed pass an hour, twice as long after each further failure in a row, never past six hours; and no
+/// later than a failure the feed remembers from before is over. A success sets the count back to zero.
+public enum PriceSchedule {
+    public static let checkSeconds: TimeInterval = 6 * 3600
+    public static let retrySeconds: TimeInterval = 3600
+
+    /// The wait before the next pass. `failuresInARow` counts the passes that failed, this one included; `retryIn` is
+    /// `PriceRefreshReport.retryIn`.
+    public static func wait(failuresInARow: Int, retryIn: TimeInterval? = nil) -> TimeInterval {
+        var wait = checkSeconds
+        if failuresInARow > 0 {
+            // 1 h, 2 h, 4 h, 6 h: the shift stops where six hours are passed anyway (and cannot overflow).
+            wait = failuresInARow >= 4 ? checkSeconds : Swift.min(checkSeconds, retrySeconds * Double(1 << (failuresInARow - 1)))
+        }
+        if let retryIn { wait = Swift.min(wait, Swift.max(1, retryIn.rounded(.up))) }
+        return wait
+    }
+
+    /// The count after a pass: one more for a pass that failed, back to zero for one that went through, the same for a
+    /// pass that only waited out a remembered failure (or did nothing, offline).
+    public static func failures(after report: PriceRefreshReport?, was count: Int) -> Int {
+        guard let report else { return 0 }
+        if !report.failed.isEmpty { return count + 1 }
+        return report.retryIn != nil ? count : 0
     }
 }

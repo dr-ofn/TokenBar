@@ -47,7 +47,7 @@ Dolar rakamı **API eşdeğeridir, gerçek faturan değildir.** "Bu token'lar AP
 [OpenRouter](https://openrouter.ai/docs/api-reference/list-available-models), [LiteLLM](https://github.com/BerriAI/litellm) ve [models.dev](https://models.dev); bir de hiçbirinin listelemediği modeller için elle denetlenmiş küçük bir tablo (OpenRouter'dan kopyalanmış bir tablo satırı, canlı OpenRouter satırına yol verir). Dökümde her modelin hangi kaynak ve slug'la fiyatlandığı yazar.
 
 - LiteLLM ve models.dev (ikisi de MIT) uygulamanın içinde anlık görüntü olarak gelir; ilk açılışta fiyatlar hazırdır. OpenRouter yalnızca ağdan okunur.
-- Uygulama her kataloğu kendiliğinden **günde en çok bir kez** yeniler (başarısız deneme bir saat sonra yinelenir), açılışta ve açık kaldığı sürece: katalog başına anonim, statik bir GET; 24 saat önbellek ve `If-None-Match` ile, değişmeyen liste yeniden indirilmez. Senin hakkında hiçbir şey gönderilmez. Bkz. [Gizlilik](#gizlilik).
+- Uygulama her kataloğu kendiliğinden **günde en çok bir kez** yeniler (başarısız deneme bir saat sonra yinelenir; art arda başarısızlıkta bekleme ikiye katlanır, en çok altı saat), açılışta ve açık kaldığı sürece: katalog başına anonim, statik bir GET; 24 saat önbellek ve `If-None-Match` ile, değişmeyen liste yeniden indirilmez. Senin hakkında hiçbir şey gönderilmez. Bkz. [Gizlilik](#gizlilik).
 - **Çevrimdışı:** `TOKENBAR_OFFLINE=1` ver ya da menüde **Çevrimdışı**'nı aç. Uygulama önbellekteki ya da gömülü fiyatları kullanır, hiç ağ çağrısı yapmaz. Aynı menüdeki **Fiyatları güncelle** istediğin an yeniler.
 - Önbellek kopyaları `~/Library/Caches/TokenBar` içindedir.
 
@@ -55,7 +55,7 @@ Dolar rakamı **API eşdeğeridir, gerçek faturan değildir.** "Bu token'lar AP
 ## Gizlilik
 
 - TokenBar yalnızca araçlarının zaten yazdığı yerel log dosyalarını **okur**. Onları değiştirmez, hiçbir yere yüklemez. İsteğe bağlı iki ayar dosyası, `custom-sources.json` ve `model-aliases.json`, senindir: uygulama onları yalnızca okur.
-- Tek ağ trafiği, herkese açık üç fiyat kataloğu (OpenRouter, LiteLLM, models.dev) için **statik GET**'lerdir: kendiliğinden her katalog için günde en çok bir tane (24 saat önbellek, ETag), başarısızlıktan bir saat sonra bir yeniden deneme ve menüden **Fiyatları güncelle**'yi seçtiğin her seferinde bir tur daha. Bu istekler verinden hiçbirini taşımaz. `TOKENBAR_OFFLINE=1` ile bu da kapanır.
+- Tek ağ trafiği, herkese açık üç fiyat kataloğu (OpenRouter, LiteLLM, models.dev) için **statik GET**'lerdir: kendiliğinden her katalog için günde en çok bir tane (24 saat önbellek, ETag), başarısızlıktan bir saat sonra bir yeniden deneme (art arda başarısızlıkta bekleme ikiye katlanır, en çok altı saat) ve menüden **Fiyatları güncelle**'yi seçtiğin her seferinde bir tur daha. Bu istekler verinden hiçbirini taşımaz. `TOKENBAR_OFFLINE=1` ile bu da kapanır.
 - **Telemetri, analitik, hesap yok.**
 
 Ayrıntı: [PRIVACY.md](PRIVACY.md) (İngilizce).
