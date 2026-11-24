@@ -28,8 +28,17 @@ CLI_FLAGS = {"--window", "-w", "--json", "--home", "--db", "--rebuild", "--no-sc
              "--prices-now", "--offline", "--version", "-h", "--help", "--output"}
 
 
+class _SafeParser(argparse.ArgumentParser):
+    """An argument the parser does not take (`--bogus<ESC>[31m`) is echoed in its error: filtered like every other line the
+    command line prints (the Mac app's displaySafe), so a control or bidi character never reaches the terminal."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: error: {display_safe(message)}\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="tokenbar", description=t(
+    p = _SafeParser(prog="tokenbar", description=t(
         "TokenBar: yapay zekâ kodlama araçlarının bu bilgisayardaki günlüklerini salt okunur okur, token ve maliyeti gösterir.",
         "TokenBar: reads the logs AI coding tools wrote on this PC (read-only) and shows tokens and cost."))
     p.add_argument("--window", "-w", default="24h", choices=list(PERIODS), help="1h 5h 24h 7d 30d all")
@@ -89,10 +98,8 @@ def run_cli(argv: list[str]) -> int:
     out = sys.stdout
     if args.version:
         if args.output:
-            with open(args.output, "w", encoding="utf-8") as f:
-                f.write(__version__ + "\n")
-        else:
-            print(__version__)
+            return _write_output(args.output, __version__ + "\n") or 0
+        print(__version__)
         return 0
     if args.home:
         # Read by its real path, so two spellings of one home (a link, a different case) are one set of files.
@@ -108,7 +115,9 @@ def run_cli(argv: list[str]) -> int:
     own = Env.from_os()
     db_path = args.db or (home_index_path(own, args.home) if args.home else own.db_path())
     try:
-        at_default = args.rebuild and os.path.normcase(_real_path(db_path)) == os.path.normcase(os.path.realpath(own.db_path()))
+        # Resolved whether or not the index is rebuilt: a name no file system can hold (an embedded NUL) is said here, once.
+        real_db = _real_path(db_path)
+        at_default = args.rebuild and os.path.normcase(real_db) == os.path.normcase(os.path.realpath(own.db_path()))
     except (OSError, ValueError) as e:
         print("tokenbar: " + display_safe(t("--db çözülemedi", "cannot resolve --db") + f" ({db_path!r}): {e}"), file=sys.stderr)
         return 2
@@ -148,10 +157,8 @@ def run_cli(argv: list[str]) -> int:
             print(f"{t('kaynak hatası', 'source error')} · model-aliases.json: {display_safe(problem)}", file=sys.stderr)
         text = json.dumps(to_json(report, detected), indent=1, sort_keys=True) if args.json else render_text(report, args.window)
         if args.output:
-            with open(args.output, "w", encoding="utf-8") as f:
-                f.write(text + "\n")
-        else:
-            print(text, file=out)
+            return _write_output(args.output, text + "\n") or 0
+        print(text, file=out)
         return 0
     finally:
         store.close()
@@ -167,6 +174,18 @@ def render_text(report, window: str) -> str:
     if not report.harnesses:
         lines.append(t("  (bu aralıkta çağrı yok)", "  (no calls in this window)"))
     return "\n".join(lines)
+
+
+def _write_output(path: str, text: str) -> int | None:
+    """Writes `--output`. A file that cannot be written (no folder, a folder, no right, a name no file system takes) is one
+    filtered line and exit 2, as the other bad arguments are, never a traceback (a windowed program shows none at all)."""
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+    except (OSError, ValueError) as e:
+        print("tokenbar: " + display_safe(t("--output yazılamadı", "cannot write --output") + f" ({path!r}): {e}"), file=sys.stderr)
+        return 2
+    return None
 
 
 def _real_path(path):

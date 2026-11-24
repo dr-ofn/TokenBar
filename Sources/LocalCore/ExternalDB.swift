@@ -25,12 +25,13 @@ final class ExternalDB {
         // database is named and left alone.
         // SQLite follows a link and opens the side files of the file it leads to: the real path is looked at as well as the
         // link's own folder.
+        // The path is resolved once, before anything opens it: a database that is a link (opencode.db kept on another disk by
+        // a dotfile manager, a relative link too) has its `-wal`, `-shm` and `-journal` beside the file it leads to, not
+        // beside the link. Everything below (the WAL test, the copy, the stamps) works on that real path, and nothing is
+        // written, moved or deleted in the tool's folders.
+        let real = Self.resolvedPath(path)
         var spellings = [path]
-        if let resolved = realpath(path, nil) {
-            let real = String(cString: resolved)
-            free(resolved)
-            if real != path { spellings.append(real) }
-        }
+        if real != path { spellings.append(real) }
         for spelling in spellings {
             for suffix in ["", "-journal", "-wal", "-shm"] {
                 var st = Darwin.stat()
@@ -39,15 +40,15 @@ final class ExternalDB {
                 }
             }
         }
-        var openPath = path
+        var openPath = real
         var query = immutable ? "immutable=1" : "mode=ro"
-        if !immutable, Self.usesWAL(path) {
-            if (Self.stamp(path + "-wal")?.size ?? 0) == 0 {
+        if !immutable, Self.usesWAL(real) {
+            if (Self.stamp(real + "-wal")?.size ?? 0) == 0 {
                 // A WAL database with no `-wal` (or an empty one) holds everything in its main file: the tool's last
                 // connection checkpointed and closed it. A read-only connection cannot open such a file through a `-shm`
                 // it would have to make, and there is nothing newer to copy: read the file as it is.
                 query = "immutable=1"
-            } else if let copy = try Self.copyForReading(path) {
+            } else if let copy = try Self.copyForReading(real) {
                 scratch = copy.folder
                 openPath = copy.database
             } else {
@@ -84,6 +85,15 @@ final class ExternalDB {
         return head[head.startIndex + 18] == 2 || head[head.startIndex + 19] == 2
     }
 
+    /// The real path of a database: every link followed (a relative one too), the path itself when it cannot be resolved
+    /// (a file that is not there). The `-wal`, `-shm` and `-journal` of a database are named from this path, never from
+    /// the link's own folder.
+    static func resolvedPath(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
     private struct Stamp: Equatable { var size: Int64; var seconds: Int; var nanos: Int }
 
     private static func stamp(_ path: String) -> Stamp? {
@@ -115,6 +125,12 @@ final class ExternalDB {
                 if before.1 != nil {
                     do { try fm.copyItem(atPath: path + "-wal", toPath: database + "-wal") } catch where isNoSuchFile(error) {}
                 }
+                // SQLite deletes the `-wal` of a database file that is 0 bytes long (there can be none) and reads nothing: a
+                // main file that has not had its first checkpoint yet is given one empty page in the copy, so the `-wal`
+                // beside it is read. The tool's own files are not touched.
+                if main.size == 0, before.1 != nil, let pageSize = walPageSize(database + "-wal") {
+                    guard truncate(database, off_t(pageSize)) == 0 else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: database]) }
+                }
                 copied = true
                 if (stamp(path), stamp(path + "-wal")) == before { return (folder, database) }
             }
@@ -130,8 +146,21 @@ final class ExternalDB {
         return nil
     }
 
+    /// The page size a `-wal` file says it was written with (bytes 8...11 of its header, after the magic number), or nil
+    /// when the file is not a WAL or the number is not a page size SQLite accepts.
+    private static func walPageSize(_ path: String) -> Int? {
+        guard let file = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? file.close() }
+        guard let head = try? file.read(upToCount: 12), head.count == 12 else { return nil }
+        let bytes = [UInt8](head)
+        let magic = UInt32(bytes[0]) << 24 | UInt32(bytes[1]) << 16 | UInt32(bytes[2]) << 8 | UInt32(bytes[3])
+        guard magic == 0x377f0682 || magic == 0x377f0683 else { return nil }
+        let size = Int(UInt32(bytes[8]) << 24 | UInt32(bytes[9]) << 16 | UInt32(bytes[10]) << 8 | UInt32(bytes[11]))
+        return size >= 512 && size <= 65536 && size & (size - 1) == 0 ? size : nil
+    }
+
     /// True for "the file is not there": Cocoa's no-such-file codes, or ENOENT underneath.
-    private static func isNoSuchFile(_ error: Error) -> Bool {
+    static func isNoSuchFile(_ error: Error) -> Bool {
         let ns = error as NSError
         if ns.domain == NSCocoaErrorDomain, ns.code == NSFileNoSuchFileError || ns.code == NSFileReadNoSuchFileError { return true }
         if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }

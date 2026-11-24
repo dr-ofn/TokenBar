@@ -10,8 +10,8 @@
 # (homebrew/cask) disables casks that fail Gatekeeper checks, and TokenBar is
 # not signed with a Developer ID or notarized.
 cask "tokenbar" do
-  version "9.0.6"
-  sha256 "REPLACE_WITH_SHA256_OF_TokenBar-9.0.6.zip"
+  version "9.0.7"
+  sha256 "REPLACE_WITH_SHA256_OF_TokenBar-9.0.7.zip"
 
   url "https://github.com/dr-ofn/TokenBar/releases/download/v#{version}/TokenBar-#{version}.zip"
   name "TokenBar"

@@ -31,8 +31,8 @@ struct CopilotParser {
             guard let usage = J.dict(data["usage"]), let tokens = Self.tokens(usage) else { return }
             let key: String
             let accounting = J.dict(usage["accounting"])
-            if let source = J.str(accounting?["sourceSessionId"]), J.int(accounting?["sequence"]) > 0 {
-                key = "cop:\(source):\(J.int(accounting?["sequence"]))"
+            if let source = J.str(accounting?["sourceSessionId"]), J.int(accounting?["sequence"], booleans: true) > 0 {
+                key = "cop:\(source):\(J.int(accounting?["sequence"], booleans: true))"
             } else if let eventID {
                 key = "cop:\(session):e:\(eventID)"
             } else {

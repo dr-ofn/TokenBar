@@ -90,7 +90,7 @@ extension UsageScanner {
         if Self.isSpecialPath(path) { return }
         guard let main = Self.fileInfo(path) else { return }
         // Each file on its own: a sum of two mtimes is the same for different pairs.
-        let stamp = Self.stamp(main) + "|" + (Self.fileInfo(path + "-wal").map(Self.stamp) ?? "-") + (salt.isEmpty ? "" : "|" + salt)
+        let stamp = Self.stamp(main) + "|" + (Self.fileInfo(ExternalDB.resolvedPath(path) + "-wal").map(Self.stamp) ?? "-") + (salt.isEmpty ? "" : "|" + salt)
         let key = "g3stamp:" + path
         if store.meta(key) == stamp { return }
         do {
@@ -100,7 +100,7 @@ extension UsageScanner {
             stat.filesRead += 1
             stat.events += events.count
         } catch {
-            result.issues.append(SourceIssue(source: source, message: "\(path): \(error)"))
+            if let why = Self.readProblem(path, error) { result.issues.append(SourceIssue(source: source, message: "\(path): \(why)")) }
         }
     }
 

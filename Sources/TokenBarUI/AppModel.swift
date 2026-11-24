@@ -24,9 +24,13 @@ public final class AppModel {
     public var notCountable: [HarnessID] = []
     /// What the last "update prices" did, in a muted line; a failure goes to `notice` instead.
     public var priceInfo: String?
+    /// What `notice` ends with: the failed update (`failNote`) and the cache warning (`cacheNote`), as long as each holds.
     public var priceWarning: String?
-    /// The cache warning now on show in `priceWarning`, to take it away again and no other.
+    /// The cache warning now on show in `priceWarning`: the price book's own note, kept for as long as the cache cannot be
+    /// written (no update, offline or pinned, takes it away; a write that went through does).
     private var cacheNote: String?
+    /// "Price update failed: ...", until a later pass finds every catalogue well (or the next update starts).
+    private var failNote: String?
     public var isRefreshingPrices = false
 
     private let engine: Engine
@@ -91,7 +95,7 @@ public final class AppModel {
             while !Task.isCancelled {
                 let report = await PriceBook.refreshInBackground()
                 // The note is kept by the price book: it is said once per process, and a pass nobody reads may have said it.
-                Task { @MainActor in self?.syncPriceWarning() }
+                Task { @MainActor in self?.syncPriceWarning(after: report) }
                 failures = PriceSchedule.failures(after: report, was: failures)
                 try? await Task.sleep(for: .seconds(PriceSchedule.wait(failuresInARow: failures, retryIn: report?.retryIn)))
             }
@@ -139,52 +143,65 @@ public final class AppModel {
     }
 
     /// "Update prices": one pass over the catalogues now, whatever the one-day wait says.
-    func updatePrices() {
+    public func updatePrices() {
+        guard !isRefreshingPrices else { return }
+        Task { await updatePricesNow() }
+    }
+
+    /// `updatePrices`, awaited, with the pass it makes given (the checks). The warnings are the price book's and the last
+    /// pass's, never this press's: a cache that still cannot be written stays on show whatever the press found (offline,
+    /// pinned, failed or well), and a failed update stays until a pass finds every catalogue well.
+    public func updatePricesNow(refresh: @Sendable () async -> PriceRefreshReport = { await PriceBook.refreshNow() }) async {
         guard !isRefreshingPrices else { return }
         isRefreshingPrices = true
-        priceWarning = nil
-        cacheNote = nil
+        setFailNote(nil)
         say(L10n.t("Fiyatlar güncelleniyor…", "Updating prices…"))
-        Task {
-            let report = await PriceBook.refreshNow()
-            isRefreshingPrices = false
-            if PriceBook.isOffline {
-                say(L10n.t("Çevrimdışı: ağ kullanılmıyor, fiyatlar güncellenmedi.", "Offline: the network is not used, prices were not updated."))
-            } else if PriceBook.isPinned {
-                say(L10n.t("Fiyatlar sabitlenmiş (TOKENBAR_PRICES_PINNED), güncellenmedi.", "Prices are pinned (TOKENBAR_PRICES_PINNED), not updated."))
-            } else if !report.failed.isEmpty {
-                let names = report.failed.keys.map(\.displayName).sorted().joined(separator: ", ")
-                priceInfo = nil
-                priceWarning = L10n.t("Fiyat güncellemesi başarısız: ", "Price update failed: ") + names
-            } else {
-                syncPriceWarning()
-                if PriceBook.cacheWarning == nil { say(L10n.t("Fiyatlar güncel, tarih ", "Prices are up to date, dated ") + PriceBook.date) }
-            }
+        let report = await refresh()
+        isRefreshingPrices = false
+        if PriceBook.isOffline {
+            syncPriceWarning()
+            say(L10n.t("Çevrimdışı: ağ kullanılmıyor, fiyatlar güncellenmedi.", "Offline: the network is not used, prices were not updated."))
+        } else if PriceBook.isPinned {
+            syncPriceWarning()
+            say(L10n.t("Fiyatlar sabitlenmiş (TOKENBAR_PRICES_PINNED), güncellenmedi.", "Prices are pinned (TOKENBAR_PRICES_PINNED), not updated."))
+        } else if !report.failed.isEmpty {
+            let names = report.failed.keys.map(\.displayName).sorted().joined(separator: ", ")
+            priceInfo = nil
+            setFailNote(L10n.t("Fiyat güncellemesi başarısız: ", "Price update failed: ") + names)
+            syncPriceWarning()
+        } else {
+            syncPriceWarning()
+            if PriceBook.cacheWarning == nil { say(L10n.t("Fiyatlar güncel, tarih ", "Prices are up to date, dated ") + PriceBook.date) }
         }
     }
 
-    /// The cache warning of the price book, as it is now: shown while it holds, taken away (only if it is still the one on
-    /// show) when a later pass wrote the cache again.
-    public func syncPriceWarning() {
-        if let note = PriceBook.cacheWarning {
-            showCacheWarning(note)
-            cacheNote = note
-        } else if let shown = cacheNote {
-            if priceWarning == shown { priceWarning = nil }
-            cacheNote = nil
-        }
+    /// The warnings under the picture, as the price book and the last pass have them now: the cache warning while the
+    /// price book holds one (and not after a write went through), and the failed update until a pass that found every
+    /// catalogue well (`report`: nothing failed, nothing left alone for an earlier failure, and a catalogue read, fresh
+    /// or asked) takes it away. Called after every pass, whichever way it went.
+    public func syncPriceWarning(after report: PriceRefreshReport? = nil) {
+        if let report, report.failed.isEmpty, report.retryIn == nil, report.changed || !report.fresh.isEmpty { setFailNote(nil) }
+        let before = cacheNote
+        cacheNote = PriceBook.cacheWarning
+        if cacheNote != nil, before == nil { priceInfo = nil }
+        if cacheNote != nil || before != nil || failNote != nil { showPriceWarning() }
     }
 
-    /// One background pass, awaited, and the warning matched to what it found (`setOffline`, and the checks).
+    /// One background pass, awaited, and the warnings matched to what it found (`setOffline`, and the checks).
     public func refreshPricesInBackground(_ refresh: @Sendable () async -> PriceRefreshReport? = { await PriceBook.refreshInBackground() }) async {
-        _ = await refresh()
-        syncPriceWarning()
+        let report = await refresh()
+        syncPriceWarning(after: report)
     }
 
-    /// The price cache folder cannot be written: a warning under the picture, until a real failure or a new update replaces it.
-    func showCacheWarning(_ note: String) {
-        priceInfo = nil
-        priceWarning = note
+    private func setFailNote(_ note: String?) {
+        guard failNote != note else { return }
+        failNote = note
+        showPriceWarning()
+    }
+
+    private func showPriceWarning() {
+        let parts = [failNote, cacheNote].compactMap { $0 }
+        priceWarning = parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// "Offline": the same as `TOKENBAR_OFFLINE=1`, remembered between runs.
@@ -192,8 +209,7 @@ public final class AppModel {
         prefs.offline = offline
         prefs.save()
         PriceBook.offline = offline
-        priceWarning = nil
-        cacheNote = nil
+        setFailNote(nil)
         syncPriceWarning()
         if offline {
             say(L10n.t("Çevrimdışı: fiyatlar yalnız yerel önbellekten okunur.", "Offline: prices come from the local cache only."))

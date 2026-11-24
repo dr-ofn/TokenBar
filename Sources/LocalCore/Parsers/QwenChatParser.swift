@@ -12,7 +12,7 @@ enum QwenChatParser {
         let prompt = J.count(u["promptTokenCount"]), candidates = J.count(u["candidatesTokenCount"])
         let thoughts = J.count(u["thoughtsTokenCount"]), cached = J.count(u["cachedContentTokenCount"])
         let insideCandidates: Bool
-        if thoughts > 0, let total = (u["totalTokenCount"] as? NSNumber)?.int64Value {
+        if thoughts > 0, let total = J.number(u["totalTokenCount"])?.int64Value {
             insideCandidates = total == 0 ? candidates > 0 : total == prompt + candidates
         } else {
             insideCandidates = false

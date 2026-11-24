@@ -72,7 +72,12 @@ def crush(add, env, home, epoch):
                                " from messages where session_id = ? and role = 'assistant' "
                                "and model is not null and model != '' order by created_at desc, rowid desc limit 1", (sid,))
             model, provider = (latest[0] if latest else (None, None))
-            add("crush:" + sid, epoch(updated or created), provider or "crush", model or "unknown",
+            # The session's time is its update time, and its creation time when that is no time at all (0, negative, text
+            # that is not a date): the apps' rule, not "whichever is non-empty".
+            stamp = _when(updated, epoch)
+            if stamp <= 0:
+                stamp = _when(created, epoch)
+            add("crush:" + sid, stamp, provider or "crush", model or "unknown",
                 prompt, 0, 0, completion, 0)
 
 

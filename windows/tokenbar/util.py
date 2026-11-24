@@ -398,7 +398,17 @@ def walk_files(root: str, match, max_depth: int | None = None) -> list[str]:
     def failed(e: OSError) -> None:
         if isinstance(e, (FileNotFoundError, NotADirectoryError)):
             return
-        _note("walk", shown_form(e.filename if isinstance(e.filename, str) else root))
+        folder = e.filename if isinstance(e.filename, str) else root
+        if isinstance(e, PermissionError):
+            # Windows answers "access denied" for a folder that is being deleted (delete pending): when it is no longer
+            # there, it is a folder that went away, which is no problem to name (as with FileNotFoundError above).
+            try:
+                os.stat(folder)
+            except (FileNotFoundError, NotADirectoryError):
+                return
+            except OSError:
+                pass
+        _note("walk", shown_form(folder))
 
     for dirpath, dirnames, filenames in os.walk(root, onerror=failed, followlinks=False):
         if max_depth is not None and dirpath.rstrip("\\/").count(os.sep) - base_depth >= max_depth:

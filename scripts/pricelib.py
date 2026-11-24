@@ -21,12 +21,12 @@ VENDOR_DOT = (r"(?:anthropic|meta|amazon|mistral|cohere|ai21|deepseek|openai|qwe
 # Route marks that never change the model: the table row of the bare name is the price.
 TAGS = {"free", "batch", "thinking", "extended", "nitro", "floor", "online", "exacto", "beta", "latest",
         "default", "flex", "priority", "standard"}
-QUANT = re.compile(r"[-_.](?:\d+bit|mlx|gguf|dwq|awq|gptq|exl2|i?q\d+(?:_[a-z0-9]+)*)$")
-DATE = re.compile(r"-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
-BEDROCK_VERSION = re.compile(r"-v\d+:\d+$")
+QUANT = re.compile(r"[-_.](?:\d+bit|mlx|gguf|dwq|awq|gptq|exl2|i?q\d+(?:_[a-z0-9]+)*)\Z", re.ASCII)
+DATE = re.compile(r"-(?:\d{8}|\d{4}-\d{2}-\d{2})\Z", re.ASCII)
+BEDROCK_VERSION = re.compile(r"-v\d+:\d+\Z", re.ASCII)
 VENDOR_PREFIX = re.compile(rf"^(?:{REGION}\.)?{VENDOR_DOT}\.(?=[a-z0-9])")
 REGION_PREFIX = re.compile(rf"^{REGION}\.(?=[a-z])")
-FAMILY_TAIL = re.compile(r"-(?:\d{3,4}|high|medium|low|minimal|xhigh|max|\d+k)$")
+FAMILY_TAIL = re.compile(r"-(?:\d{3,4}|high|medium|low|minimal|xhigh|max|\d+k)\Z", re.ASCII)
 LOCAL_PROVIDERS = {"ollama", "lmstudio", "lm-studio", "mlx", "omlx", "llama.cpp", "llamacpp", "llama-cpp", "local",
                    "localhost", "jan", "gpt4all", "koboldcpp", "llamafile"}
 
@@ -35,13 +35,28 @@ def fold(s):
     return re.sub(r"-+", "-", re.sub(r"[._@]", "-", s))
 
 
+# What the Mac app's `trimmingCharacters(in: .whitespaces)` removes from the ends of a name (CharacterSet.whitespaces: the
+# characters Foundation counts as a space, listed by enumerating the set): a tab, U+0020, U+00A0, U+1680, U+2000..U+200B,
+# U+202F, U+205F and U+3000. NOT the line breaks and control characters Python's str.strip() also takes (\n \r \v \f,
+# U+001C..U+001F, U+0085, U+2028, U+2029): a model name that ends in one is another name, and has no price, on every platform.
+MAC_SPACES = "\t \u00a0\u1680" + "".join(chr(c) for c in range(0x2000, 0x200C)) + "\u202f\u205f\u3000"
+
+
+def trim(s):
+    return s.strip(MAC_SPACES)
+
+
+def is_space(c):
+    return c in MAC_SPACES
+
+
 def strip_brackets(s):
     """`[1m]`, `(high)` and the like at the end, one backward pass (what `\\s*(?:\\[[^\\]]*\\]|\\([^)]*\\))\\s*$` removes, again
     and again): a name of many groups is not scanned once per group."""
     end = len(s)
     while True:
         j = end
-        while j > 0 and s[j - 1].isspace():
+        while j > 0 and is_space(s[j - 1]):
             j -= 1
         if j == 0 or s[j - 1] not in ")]":
             return s[:end]
@@ -52,7 +67,7 @@ def strip_brackets(s):
         if start < 0:
             return s[:end]
         end = start
-        while end > 0 and s[end - 1].isspace():
+        while end > 0 and is_space(s[end - 1]):
             end -= 1
 
 
@@ -60,7 +75,7 @@ MAX_NAME = 256   # the longest model name that is normalised (ModelNames.maxName
 
 
 def clean(model):
-    s = strip_brackets(model[:MAX_NAME].strip().lower())
+    s = strip_brackets(trim(model[:MAX_NAME]).lower())
     s = s.rsplit("/", 1)[-1]
     t = VENDOR_PREFIX.sub("", s)
     if t == s:
@@ -72,9 +87,9 @@ def identity(s):
     """The name without route marks, dates and Bedrock versions: still the model's own spelling."""
     while True:
         before = s
-        s = re.sub(r"@(?:\d{8}|latest|default)$", "", s)
+        s = re.sub(r"@(?:\d{8}|latest|default)\Z", "", s, flags=re.ASCII)
         s = BEDROCK_VERSION.sub("", s)
-        m = re.search(r":([a-z0-9_.-]+)$", s)
+        m = re.search(r":([a-z0-9_.-]+)\Z", s)
         if m:
             s = s[:m.start()] + ("" if m.group(1) in TAGS else "-" + m.group(1))
         s = DATE.sub("", s)
@@ -126,8 +141,8 @@ def unique(items):
 
 
 def is_local_provider(provider, extra=()):
-    p = provider.strip().lower().replace("_", "-")
-    return p in LOCAL_PROVIDERS or p in {e.strip().lower().replace("_", "-") for e in extra}
+    p = trim(provider).lower().replace("_", "-")
+    return p in LOCAL_PROVIDERS or p in {trim(e).lower().replace("_", "-") for e in extra}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -225,7 +240,7 @@ def openrouter_rows(raw):
         name = m.get("name") if isinstance(m.get("name"), str) else ""
         colon = name.find(":")
         if 1 <= colon <= 40:
-            name = name[colon + 1:].strip()
+            name = trim(name[colon + 1:])
         row = base + [tiers, name]
         if not corrupt and row_ok(row):
             out[m["id"]] = row
@@ -233,7 +248,7 @@ def openrouter_rows(raw):
 
 
 LITELLM_TIER = re.compile(r"^(input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|"
-                          r"cache_creation_input_token_cost|cache_creation_input_token_cost_above_1hr)_above_(\d+)k_tokens$")
+                          r"cache_creation_input_token_cost|cache_creation_input_token_cost_above_1hr)_above_([0-9]+)k_tokens\Z")
 LITELLM_FIELDS = ("input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost",
                   "cache_creation_input_token_cost", "cache_creation_input_token_cost_above_1hr")
 
@@ -251,7 +266,10 @@ def litellm_rows(raw):
         for field, value in v.items():
             m = LITELLM_TIER.match(field)
             if m and isinstance(value, (int, float)) and not isinstance(value, bool):
-                k = int(m.group(2))
+                # `<N>k` must be a whole number of thousands a prompt can have; a longer run of digits (Python refuses to turn one of
+                # 4300 digits into an integer at all) spoils this row only, as on the Mac: never the whole catalogue
+                digits = m.group(2).lstrip("0")
+                k = int(digits or "0") if len(digits) <= 20 else 0
                 if not (1 <= k <= MAX_TIER_TOKENS // 1000):
                     corrupt = True
                     continue
@@ -513,7 +531,7 @@ class Pricer:
         if len(model) > MAX_NAME:            # no model has a name this long: such a line is not a model
             return None
         keys = Keys(model)
-        raw = strip_brackets(model.strip().lower())
+        raw = strip_brackets(trim(model).lower())
         local = is_local_provider(provider, self.local_providers) or keys.quantised
         k = next((k for k in keys.ordered if k in self.aliases), None)
         if k is not None:
@@ -567,7 +585,7 @@ class Pricer:
                         if found is ALIAS_LOOP:
                             return ALIAS_LOOP
                     break
-            hit = found or self.lookup(alias, target, strip_brackets(alias.strip().lower()))
+            hit = found or self.lookup(alias, target, strip_brackets(trim(alias).lower()))
             if hit is None:
                 return None
             return dict(hit, kind="alias", source=f"kullanıcı takma adı: {key} → {alias} ({hit['source']})")

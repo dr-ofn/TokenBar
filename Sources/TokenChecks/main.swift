@@ -206,7 +206,7 @@ func runProbe(_ name: String, dir: String) throws {
         print("recorded=\(try store.fileRecords().keys.filter { $0.hasSuffix(".zst") }.count)")
         print("events=\(try store.eventCount())")
     default:
-        print(g2Probe(name, dir: dir) ?? saglamlikProbe(name, dir: dir) ?? fix902Probe(name, dir: dir) ?? fix904Probe(name, dir: dir) ?? fix905Probe(name, dir: dir) ?? fix906Probe(name, dir: dir) ?? "unknown probe")
+        print(g2Probe(name, dir: dir) ?? saglamlikProbe(name, dir: dir) ?? fix902Probe(name, dir: dir) ?? fix904Probe(name, dir: dir) ?? fix905Probe(name, dir: dir) ?? fix906Probe(name, dir: dir) ?? fix907Probe(name, dir: dir) ?? "unknown probe")
     }
 }
 func probe(_ name: String, dir: String = "", env: [String: String] = [:]) -> (status: Int32, out: String) {
@@ -858,6 +858,7 @@ do {
     try fix904Checks(tempDir: tempDir)
     try fix905Checks(tempDir: tempDir)
     try fix906Checks(tempDir: tempDir)
+    try fix907Checks(tempDir: tempDir)
 
     if !skipped.isEmpty { print("\(skipped.count) check(s) skipped, not run: \(skipped.joined(separator: "; "))") }
     if failures == 0 { print("ALL CHECKS PASS") } else { print("\(failures) FAILED") }

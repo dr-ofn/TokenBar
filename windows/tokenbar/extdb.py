@@ -7,6 +7,11 @@ a private temporary folder (deleted again); a WAL database with no `-wal` (or an
 `immutable=1` (a copy could not be opened read-only without a `-shm`); a WAL database too large to copy likewise;
 any other database is opened `mode=ro` in place, and `immutable=1` when that fails (never for a copy: that would
 drop the `-wal`).
+
+A database that is a symbolic link is read at the file the link leads to (`real_path`): SQLite opens the `-wal`, `-shm`
+and `-journal` beside THAT file, so those are what is looked for, copied and stamped, never the ones beside the link
+(there are none: the newest rows would be missed, and SQLite would delete the `-wal` of a 0-byte database it opens in
+place). A pipe, socket or device under the name of the database or of one of those files is never opened.
 """
 from __future__ import annotations
 
@@ -16,6 +21,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import tempfile
 import threading
@@ -41,6 +47,38 @@ class ZstdMissing(Exception):
 
 class ZstdTooLarge(ValueError):
     """One line, or the whole output, is larger than any log of a tool is: not read."""
+
+
+def real_path(path: str) -> str:
+    """The file a database path leads to (a symbolic link, relative or not, followed): where SQLite looks for the
+    `-wal`, `-shm` and `-journal`. A name that cannot be resolved is returned as it is."""
+    try:
+        return os.path.realpath(longpath(path))
+    except (OSError, ValueError):
+        return path
+
+
+SIDE_SUFFIXES = ("", "-journal", "-wal", "-shm")
+
+
+def special_file(path: str) -> str | None:
+    """The first of the database and its side files (beside the path and beside the file a link leads to) that is a
+    pipe, a socket or a device, or None. Looked at with `stat` before anything opens them: opening a pipe waits for a
+    writer, and SQLite opens the `-journal` to look for a hot one (the Mac app's ExternalDB)."""
+    spellings = [path]
+    real = real_path(path)
+    if real != path:
+        spellings.append(real)
+    for spelling in spellings:
+        for suffix in SIDE_SUFFIXES:
+            p = spelling + suffix
+            try:
+                mode = os.stat(longpath(p)).st_mode
+            except (OSError, ValueError):
+                continue
+            if stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode) or stat.S_ISCHR(mode) or stat.S_ISBLK(mode):
+                return p
+    return None
 
 
 def uses_wal(path: str) -> bool:
@@ -95,6 +133,24 @@ def _sweep_old_scratch() -> None:
                 pass
 
 
+def _give_empty_main_a_page(target: str) -> None:
+    """A database of 0 bytes with a `-wal` (its first checkpoint has not happened: every page, the schema's too, is in the
+    `-wal`): SQLite deletes the `-wal` of a file with no page, so the copy would read as an empty database and the rows
+    would be lost. One page of zeros makes SQLite open the `-wal`, whose frames replace that page. Only ever the copy."""
+    try:
+        if os.path.getsize(target) != 0 or os.path.getsize(target + "-wal") < 32:
+            return
+        with open(target + "-wal", "rb") as f:
+            head = f.read(32)
+        size = int.from_bytes(head[8:12], "big")
+        if head[:4] not in (b"\x37\x7f\x06\x82", b"\x37\x7f\x06\x83") or size < 512 or size > 65536 or size & (size - 1):
+            return
+    except OSError:
+        return                  # the header cannot be read: the copy is opened as it is
+    with open(target, "wb") as f:    # a failed write raises: SQLite would drop the -wal and read the database as empty
+        f.write(bytes(size))
+
+
 def _copy_pair(path: str):
     """(folder, copy of the db) with its -wal beside it, or None when it is too large or has gone.
     Raises OSError when the copy fails (Windows: the other program holds the file): the newest rows live in the -wal,
@@ -116,6 +172,7 @@ def _copy_pair(path: str):
                 # raises: the .db alone would read without the newest rows and the file would be called read.
                 with contextlib.suppress(FileNotFoundError):
                     shutil.copyfile(longpath(path + "-wal"), target + "-wal")
+            _give_empty_main_a_page(target)
             if (_stamp(path), _stamp(path + "-wal")) == before:
                 return folder, target
         else:
@@ -152,6 +209,10 @@ def _uri(path: str, query: str) -> str:
 def open_readonly(path: str, immutable: bool = False):
     """A read-only sqlite3 connection on someone else's database; raises sqlite3.Error when it cannot be read."""
     scratch = None
+    odd = special_file(path)
+    if odd is not None:
+        raise sqlite3.OperationalError(f"{odd}: not a regular file, the database was not opened")
+    path = real_path(path)          # a link is followed once, here: every side file below is the one beside the real file
     target, query = path, ("immutable=1" if immutable else "mode=ro")
     if not immutable and uses_wal(path):
         if _wal_is_empty(path):

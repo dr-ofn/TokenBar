@@ -387,7 +387,7 @@ def test_a_download_that_drips_is_stopped_at_the_total_limit(monkeypatch):
         read = read1
 
     monkeypatch.setattr(feed, "_clock", lambda: clock["t"])
-    monkeypatch.setattr(feed.urllib.request, "urlopen", lambda req, timeout=None: Resp())
+    monkeypatch.setattr(feed._opener, "open", lambda req, timeout=None: Resp())
     with pytest.raises(feed.FetchError, match="timed out"):
         feed.url_fetcher("openrouter", None)
     assert clock["t"] <= feed.FETCH_DEADLINE + 10.0

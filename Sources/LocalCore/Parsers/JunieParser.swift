@@ -30,7 +30,7 @@ enum JunieParser {
     }
 
     private static func first(_ u: [String: Any], _ keys: String...) -> Int64 {
-        for key in keys where u[key] != nil { return max(0, J.int(u[key])) }
+        for key in keys where u[key] != nil { return max(0, J.int(u[key], booleans: true)) }
         return 0
     }
 }

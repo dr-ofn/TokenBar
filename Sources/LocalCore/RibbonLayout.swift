@@ -79,6 +79,10 @@ public struct RibbonLayout: Sendable {
 
     public init(report: UsageReport, width: Double, height: Double, leftColumn: Double, rightColumn: Double,
                 top: Double, bottomMargin: Double, labelGap: Double = 14) {
+        // A size that is not a number (a view that has no size yet answers infinity) is no size, as in `TideLayout`: the
+        // picture is flat, nothing is drawn, and no conversion below meets an infinity.
+        let width = width.isFinite ? width : 0
+        let height = height.isFinite ? height : 0
         self.width = width
         self.top = top
         bottom = height - bottomMargin
@@ -175,7 +179,10 @@ public struct RibbonLayout: Sendable {
         Self.spread(&leftLabels, gap: labelGap, top: top + 6, bottom: bottom - 6)
 
         // Only as many names as the rail has lines for; the cheapest of the rest join "N model daha".
-        let lines = Int(Swift.max(0, span - 6) / labelGap) + 1
+        // Held to a million lines before the conversion: a span or a gap that makes the quotient infinite, NaN or beyond
+        // Int is a trap otherwise.
+        let fitting = Swift.max(0, span - 6) / labelGap
+        let lines = (fitting.isNaN ? 0 : Int(Swift.max(0, Swift.min(fitting, 1_000_000)))) + 1
         let room = Swift.max(1, lines - 1 - (free.isEmpty ? 0 : 1))
         let keep = Set(paid.filter { $0.cost / report.cost >= namedShare }.sorted { $0.cost > $1.cost }.prefix(room).map(\.key))
         let named = paid.filter { keep.contains($0.key) }

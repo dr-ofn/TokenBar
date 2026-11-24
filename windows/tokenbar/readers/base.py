@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Callable
 
+from ..extdb import real_path
 from ..util import FIELD_LIMIT, clamp, longpath
 
 
@@ -105,9 +106,13 @@ def db_stamp(path: str) -> tuple[str, int, float]:
 
     The stamp is one `inode:size:mtime_ns` per file, joined (as the Mac app's): each file on its own, because a sum of
     two sizes and the newest of two times are the same for different pairs, and compared for equality, because a
-    clock set back or a restored backup moves a time backwards and is still a change."""
+    clock set back or a restored backup moves a time backwards and is still a change.
+
+    A database that is a symbolic link has its `-wal` beside the file the link leads to, and that is the one stamped:
+    the one beside the link does not exist, and a stamp that never changed would keep the file from being read again."""
     parts, size, newest = [], 0, 0.0
-    for p in (path, path + "-wal"):
+    real = real_path(path)
+    for p in (path, real + "-wal"):
         try:
             st = os.stat(longpath(p))
         except FileNotFoundError:

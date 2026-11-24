@@ -489,6 +489,115 @@ func preferencesChecks() -> Int {
     return failed
 }
 
+/// The two price warnings under the picture, through "Update prices" and the background passes (an engine on a scratch
+/// folder, never this Mac's; every pass is a report made here, the network is never asked):
+/// a cache that still cannot be written stays on show whatever the press found (offline, pinned, failed, well); a failed
+/// update stays until a pass finds every catalogue well, and is then gone.
+@MainActor func priceWarningLifeChecks(_ lang: Lang) async -> Int {
+    L10n.setLanguage(lang)
+    defer { L10n.setLanguage(nil) }
+    var failed = 0
+    func expect(_ name: String, _ cond: Bool) {
+        print((cond ? "ok   " : "FAIL ") + "[\(lang.rawValue)] " + name)
+        if !cond { failed += 1 }
+    }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tokenbar-pricewarn-\(UUID().uuidString.prefix(8))").path
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let model = AppModel(engine: Engine(home: dir, dbPath: dir + "/notice.sqlite"))
+    struct OneCatalogue: PriceFetching {
+        func fetch(_ source: PriceSource, etag: String?) async throws -> PriceFetchResponse {
+            let text: String
+            switch source {
+            case .openrouter: text = #"{"data":[{"id":"vendor/zz-ui","name":"Zz","pricing":{"prompt":"0.000001","completion":"0.000002"}}]}"#
+            case .litellm: text = #"{"zz-ui":{"input_cost_per_token":1e-6,"output_cost_per_token":2e-6,"mode":"chat"}}"#
+            case .modelsdev: text = #"{"prov":{"models":{"zz-ui":{"cost":{"input":1,"output":2}}}}}"#
+            }
+            return .ok(Data(text.utf8), etag: nil)
+        }
+    }
+    let cache = URL(fileURLWithPath: dir + "/readonly-cache", isDirectory: true)
+    try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+    chmod(cache.path, 0o555)
+    defer { chmod(cache.path, 0o755); PriceBook.offline = false; PriceBook.clearCacheWarning() }
+    let cacheText = L10n.t("fiyat önbelleği yazılamıyor: ", "price cache cannot be written: ") + cache.path
+    let failText = L10n.t("Fiyat güncellemesi başarısız: ", "Price update failed: ") + PriceSource.openrouter.displayName
+    func shows(_ text: String) -> Bool { (model.notice ?? "").contains(text) }
+
+    let none = { () async -> PriceRefreshReport in PriceRefreshReport() }
+    let broken = { () async -> PriceRefreshReport in
+        var report = PriceRefreshReport()
+        report.failed[.openrouter] = "no network"
+        return report
+    }
+    let well = { () async -> PriceRefreshReport in
+        var report = PriceRefreshReport()
+        report.updated = [.openrouter, .litellm, .modelsdev]
+        return report
+    }
+
+    // The cache cannot be written: the price book says so, the picture shows it.
+    let feed = PriceFeed(PriceFeed.Config(cacheDirectory: cache, offline: false, fetcher: OneCatalogue()))
+    PriceBook.noteWarnings(await feed.refresh())
+    model.syncPriceWarning()
+    expect("önbellek uyarısı: yazılamayan önbellek görünüyor", shows(cacheText) && PriceBook.cacheWarning != nil)
+
+    // "Update prices" while offline: nothing was asked, the cache is as broken as it was.
+    PriceBook.offline = true
+    await model.updatePricesNow(refresh: none)
+    PriceBook.offline = false
+    expect("önbellek uyarısı: çevrimdışı 'Fiyatları güncelle' uyarıyı silmiyor (\(model.notice ?? "-"))", shows(cacheText) && PriceBook.cacheWarning != nil)
+    expect("önbellek uyarısı: ... ve çevrimdışı satırı da görünüyor", model.priceInfo == L10n.t("Çevrimdışı: ağ kullanılmıyor, fiyatlar güncellenmedi.", "Offline: the network is not used, prices were not updated."))
+
+    // The same pinned (the selfcheck runs pinned).
+    await model.updatePricesNow(refresh: none)
+    expect("önbellek uyarısı: sabitli 'Fiyatları güncelle' uyarıyı silmiyor (\(model.notice ?? "-"))", shows(cacheText))
+    expect("önbellek uyarısı: ... ve sabit satırı da görünüyor", model.priceInfo == L10n.t("Fiyatlar sabitlenmiş (TOKENBAR_PRICES_PINNED), güncellenmedi.", "Prices are pinned (TOKENBAR_PRICES_PINNED), not updated."))
+
+    // Not pinned from here: the press goes on to the report.
+    setenv("TOKENBAR_PRICES_PINNED", "0", 1)
+    defer { setenv("TOKENBAR_PRICES_PINNED", "1", 1) }
+    await model.updatePricesNow(refresh: broken)
+    expect("başarısız güncelleme: başarısızlık ve yazılamayan önbellek birlikte görünüyor (\(model.notice ?? "-"))", shows(failText) && shows(cacheText))
+    await model.updatePricesNow(refresh: well)
+    expect("önbellek uyarısı: başarılı güncelleme de yazılamayan önbelleği silmiyor, başarısızlık kalkıyor (\(model.notice ?? "-"))",
+           shows(cacheText) && !shows(failText))
+
+    // A background pass finds every catalogue well while the cache is still broken: the failure goes, the cache warning stays.
+    await model.updatePricesNow(refresh: broken)
+    await model.refreshPricesInBackground { await well() }
+    expect("başarısız güncelleme: başarılı arka plan turu başarısızlığı kaldırıyor, önbellek uyarısı kalıyor (\(model.notice ?? "-"))",
+           shows(cacheText) && !shows(failText))
+
+    // The folder can be written again: the warning is over, and with nothing else on show there is no notice.
+    chmod(cache.path, 0o755)
+    PriceBook.clearCacheWarning()
+    await model.refreshPricesInBackground { await well() }
+    expect("önbellek uyarısı: önbellek yazılabilir olunca uyarı kalkıyor", model.notice == nil && model.priceWarning == nil)
+
+    // A failed update with a sound cache: it stays through passes that prove nothing, and goes with one that does.
+    await model.updatePricesNow(refresh: broken)
+    expect("başarısız güncelleme: tek başına görünüyor (\(model.notice ?? "-"))", model.notice == failText)
+    await model.refreshPricesInBackground { nil }
+    let waiting: PriceRefreshReport = {
+        var report = PriceRefreshReport()
+        report.skipped = [.openrouter]
+        report.retryIn = 3600
+        return report
+    }()
+    await model.refreshPricesInBackground { waiting }
+    await model.refreshPricesInBackground { await broken() }
+    expect("başarısız güncelleme: boş, bekleyen ve yine başarısız turlar onu kaldırmıyor", model.notice == failText)
+    await model.refreshPricesInBackground { await well() }
+    expect("başarısız güncelleme: her katalog sağlam bir sonraki tur onu kaldırıyor (\(model.notice ?? "-"))", model.notice == nil)
+
+    // A failed press, then a press that finds everything well.
+    await model.updatePricesNow(refresh: broken)
+    await model.updatePricesNow(refresh: well)
+    expect("başarısız güncelleme: sonraki başarılı elle güncelleme onu kaldırıyor", model.notice == nil)
+    return failed
+}
+
 /// UI invariants that can be checked without a screen.
 @MainActor func selfcheck() async throws -> Int32 {
     // The prices the checks expect are the embedded snapshot's and the hand-made tables': never this Mac's price cache
@@ -521,6 +630,8 @@ func preferencesChecks() -> Int {
     failed += noticeChecks(.en)
     failed += await cacheWarningChecks(.tr)
     failed += await cacheWarningChecks(.en)
+    failed += await priceWarningLifeChecks(.tr)
+    failed += await priceWarningLifeChecks(.en)
     print(failed == 0 ? "UI SELF-CHECK OK" : "\(failed) UI SELF-CHECK FAILED")
     return failed == 0 ? 0 : 1
 }

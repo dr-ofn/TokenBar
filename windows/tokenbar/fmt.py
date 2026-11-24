@@ -44,6 +44,11 @@ def rate(v: float) -> str:
         return f"{v:.0f}"
     if v >= 10:
         return f"{v:.1f}".rstrip("0").rstrip(".")
+    if 0 < v < 0.1:
+        # Three decimals once two would round a small paid price to 0 (the Mac app's rate(): $0.001 is not $0). A price
+        # that three decimals still round to 0 stays "0.000", visibly a rounded number and not "free".
+        three = f"{v:.3f}"
+        return three.rstrip("0").rstrip(".") if float(three) > 0 else three
     return f"{v:.2f}".rstrip("0").rstrip(".") if v else "0"
 
 

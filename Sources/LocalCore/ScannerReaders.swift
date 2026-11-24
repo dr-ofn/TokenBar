@@ -166,9 +166,9 @@ extension UsageScanner {
     }
 
     /// The stamp of a database and its `-wal` together, each file on its own (a sum of two mtimes is the same for
-    /// different pairs).
+    /// different pairs). The `-wal` is the one beside the real file when the database is a link.
     func pairStamp(_ path: String) -> String {
-        (Self.fileInfo(path).map(Self.stamp) ?? "-") + "|" + (Self.fileInfo(path + "-wal").map(Self.stamp) ?? "-")
+        (Self.fileInfo(path).map(Self.stamp) ?? "-") + "|" + (Self.fileInfo(ExternalDB.resolvedPath(path) + "-wal").map(Self.stamp) ?? "-")
     }
 
     /// Where the second file of a pair, already read in this pass, is recorded as read: its whole size when the pair is

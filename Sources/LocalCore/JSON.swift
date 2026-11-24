@@ -71,10 +71,22 @@ enum J {
         return changed ? Data(out) : nil
     }
 
+    /// A JSON number that is not a boolean (an `NSNumber` is both): `true` and `false` are no number in a log, as they are
+    /// none for the Windows build (`util.whole`) and for the price catalogues.
+    static func number(_ v: Any?) -> NSNumber? {
+        guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+        return n
+    }
+
     /// An integer field, held to `-fieldLimit...fieldLimit`: a count of `1e20` or `Int64.max` must not overflow the
-    /// sums and differences the readers make of up to four of them. Not a number is 0.
-    static func int(_ v: Any?) -> Int64 {
-        guard let n = v as? NSNumber else { return 0 }
+    /// sums and differences the readers make of up to four of them. Not a number (a boolean is none) is 0.
+    ///
+    /// `booleans: true` is the rule of the readers that the Windows build reads with `util.count` (Gemini, Qwen chats,
+    /// Copilot CLI, Junie, Vibe, Augment, Codebuff): there a JSON `true` is 1 and `false` 0. The other readers are
+    /// `util.num`/`util.whole` there, and a boolean is no number.
+    static func int(_ v: Any?, booleans: Bool = false) -> Int64 {
+        if booleans, let b = v as? NSNumber, CFGetTypeID(b) == CFBooleanGetTypeID() { return b.boolValue ? 1 : 0 }
+        guard let n = number(v) else { return 0 }
         let d = n.doubleValue
         let limit = TokenCounts.fieldLimit
         if d.isNaN { return 0 }
@@ -83,7 +95,7 @@ enum J {
         return n.int64Value
     }
 
-    static func double(_ v: Any?) -> Double? { (v as? NSNumber)?.doubleValue }
+    static func double(_ v: Any?) -> Double? { number(v)?.doubleValue }
 
     static func str(_ v: Any?) -> String? {
         guard let s = v as? String, !s.isEmpty else { return nil }

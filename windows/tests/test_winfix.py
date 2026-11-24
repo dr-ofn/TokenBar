@@ -872,7 +872,7 @@ def test_release_script_prints_commands_that_work_whichever_comes_first():
 # ---------------------------------------------------------------------------------------------------- 14 / A10 paths
 
 @pytest.mark.parametrize("path,uri", [
-    ("C:\\Users\\a b\\x.db", "file:///C:/Users/a%20b/x.db"),
+    ("C:\\Data\\a b\\x.db", "file:///C:/Data/a%20b/x.db"),
     ("\\\\fileserver\\users\\alice\\opencode.db", "file:////fileserver/users/alice/opencode.db"),
     ("\\\\?\\UNC\\fileserver\\users\\alice\\x.db", "file:////fileserver/users/alice/x.db"),
     ("\\\\?\\C:\\very\\long\\x.db", "file:///C:/very/long/x.db"),

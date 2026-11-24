@@ -32,7 +32,7 @@ class _Resp:
 @pytest.mark.parametrize("exc", [http.client.IncompleteRead(b"abc", 7), http.client.BadStatusLine("garbage"),
                                  http.client.LineTooLong("header"), http.client.HTTPException("generic")])
 def test_url_fetcher_wraps_http_client_errors(monkeypatch, exc):
-    monkeypatch.setattr(pfeed.urllib.request, "urlopen", lambda req, timeout=None: _Resp(exc))
+    monkeypatch.setattr(pfeed._opener, "open", lambda req, timeout=None: _Resp(exc))
     with pytest.raises(FetchError):
         pfeed.url_fetcher("litellm", None)
 
@@ -44,7 +44,7 @@ def test_refresh_goes_on_with_the_other_catalogues_after_a_cut_download(tmp_path
         asked.append(req.full_url)
         return _Resp(http.client.IncompleteRead(b"x", 5))
 
-    monkeypatch.setattr(pfeed.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(pfeed._opener, "open", urlopen)
     feed = PriceFeed(str(tmp_path), now=lambda: 10 ** 9)           # the real url_fetcher
     rep = feed.refresh()
     assert len(asked) == 3                                           # none of the sources was skipped

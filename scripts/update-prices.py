@@ -77,6 +77,13 @@ def rates(p, fallback=None):
     read = per_million(p.get("input_cache_read"))
     write = per_million(p.get("input_cache_write"))
     write1h = per_million(p.get("input_cache_write_1h"))
+    if fallback is None:
+        # The apps read a negative cache price of the base row as "not said" (0: it then falls back to the input price)...
+        read, write, write1h = max(read, 0), max(write, 0), max(write1h, 0)
+    # ... and drop any other row that holds a negative rate (a tier's, or an input or output price below 0): never a negative price
+    # in the table.
+    if min(inp, out, read, write, write1h) < 0:
+        raise ValueError("negative price")
     return {"input": inp, "output": out, "cacheRead": read or inp, "cacheWrite": write or inp,
             "cacheWrite1h": write1h or write or inp}
 
@@ -94,11 +101,14 @@ def entry(key, spec, catalogue, previous):
         print(f"katalogda yok, son fiyat kaldı: {key} ({slug})")
     elif slug:
         pricing = catalogue[slug]["pricing"]
-        out.update(rates(pricing))
-        # Only prompt-length overrides are tiers; time-of-day ones (utc_start/utc_end) keep the base price.
-        tiers = [t for t in pricing.get("overrides") or [] if "min_prompt_tokens" in t]
-        for t in sorted(tiers, key=lambda t: t["min_prompt_tokens"]):
-            out["tiers"].append({"minPrompt": t["min_prompt_tokens"], **rates(t, out)})
+        try:
+            out.update(rates(pricing))
+            # Only prompt-length overrides are tiers; time-of-day ones (utc_start/utc_end) keep the base price.
+            tiers = [t for t in pricing.get("overrides") or [] if "min_prompt_tokens" in t]
+            for t in sorted(tiers, key=lambda t: t["min_prompt_tokens"]):
+                out["tiers"].append({"minPrompt": t["min_prompt_tokens"], **rates(t, out)})
+        except ValueError:
+            sys.exit(f"{key}: {slug} OpenRouter kataloğunda negatif fiyat var; satır alınmadı")
         note = spec.get("note")
         if spec.get("or"):
             out["kind"] = "openrouter"
@@ -212,6 +222,7 @@ def build_snapshot(litellm_path, modelsdev_path):
         sys.exit(f"snapshot holds a number JSON cannot write: {e}")
     for source_name in ("litellm", "modelsdev"):
         bad = [k for k, row in snapshot[source_name].items() if not pricelib.row_ok(row)]
+        bad += [k for k, row in (snapshot.get("exact", {}).get(source_name) or {}).items() if not pricelib.row_ok(row)]     # the exact layer too
         if bad:
             sys.exit(f"snapshot: {len(bad)} {source_name} row(s) fail the app's sanity rule (a rate over {pricelib.MAX_RATE:g}, a bad tier): {bad[:3]}")
     if '"""' in text or "\\#" in text:
@@ -243,7 +254,12 @@ def check_drift(path, limit=0.05):
         slug = v.get("or")
         if not slug or slug not in catalogue or key not in table:
             continue
-        now = rates(catalogue[slug]["pricing"])
+        try:
+            now = rates(catalogue[slug]["pricing"])
+        except ValueError:
+            drifted += 1
+            print(f"{key} ({slug}): the live catalogue holds a negative price")
+            continue
         moved = {f: (table[key][f], now[f]) for f in ("input", "output") if abs(now[f] - table[key][f]) > limit * max(table[key][f], 1e-12)}
         if moved:
             drifted += 1

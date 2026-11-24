@@ -11,9 +11,9 @@ enum VibeParser {
         guard let root = (J.parse(data)) as? [String: Any] else { return [] }
         let meta = J.dict(root["metadata"]) ?? root
         guard let stats = J.dict(meta["stats"]) else { return [] }
-        let prompt = max(0, J.int(stats["session_prompt_tokens"])), cached = max(0, J.int(stats["session_cached_tokens"]))
+        let prompt = max(0, J.int(stats["session_prompt_tokens"], booleans: true)), cached = max(0, J.int(stats["session_cached_tokens"], booleans: true))
         let tokens = TokenCounts(input: max(0, prompt - cached), cacheRead: cached,
-                                 output: max(0, J.int(stats["session_completion_tokens"])))
+                                 output: max(0, J.int(stats["session_completion_tokens"], booleans: true)))
         guard !tokens.isZero else { return [] }
         var time = J.time(meta["end_time"])
         if time <= 0 { time = J.time(meta["start_time"]) }

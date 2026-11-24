@@ -98,6 +98,7 @@ class AppModel:
                 problem = None
             if problem:
                 result.issues.append(("model-aliases.json", problem))
+            self.book.retry_held_writes()       # no network: a price cache folder that works again is written, and its warning goes, now
             self._add_price_problem(result)
             self.last_scan, self.last_scan_time = result, time.time()
             return result
@@ -125,6 +126,7 @@ class AppModel:
         """Fetches the price lists (a day's cache is respected unless `force`, the menu's "Update prices"); returns the
         feed's report or None when offline."""
         report = self.book.refresh(force)
+        self.book.retry_held_writes()           # Offline and pinned do not reach the feed's pass: what it kept is tried here too
         if self.last_scan is not None:
             self._add_price_problem(self.last_scan)
         return report

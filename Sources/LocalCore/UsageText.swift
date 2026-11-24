@@ -184,11 +184,29 @@ public enum UsageText {
         return text + source
     }
 
+    /// How many unpriced model names the total's note spells out; the rest are counted (the whole list is `tokenbar-cli --json`'s).
+    public static let totalNoteModelLimit = 20
+    /// The longest a single model name is written there.
+    public static let totalNoteNameCharacters = 80
+
     public static func totalNote(_ r: UsageReport) -> String {
         var text = L10n.t("API eşdeğeri, gerçek fatura değil: abonelikle çalışan çağrılar da liste fiyatından hesaplanır. Fiyatlar \(PriceBook.date) tarihli. Web arama ücretleri dahil değil.",
                           "API equivalent, not a real bill: calls made on a subscription are priced at list prices too. Prices dated \(PriceBook.date). Web search fees are not included.")
         if !r.unpriced.isEmpty {
-            text += L10n.t(" Fiyatı bulunamayan, maliyete girmeyen modeller: ", " Models with no price, left out of the cost: ") + r.unpriced.map(\.id).joined(separator: ", ") + "."
+            text += L10n.t(" Fiyatı bulunamayan, maliyete girmeyen modeller: ", " Models with no price, left out of the cost: ") + unpricedNames(r.unpriced) + "."
+        }
+        return text
+    }
+
+    /// The first `totalNoteModelLimit` names, then "and N more": a tool that writes a new model name on every call must
+    /// not make a note as long as the log (the same shape as the scan warnings' "and N more").
+    private static func unpricedNames(_ models: [ModelInfo]) -> String {
+        let shown = models.prefix(totalNoteModelLimit).map { (m: ModelInfo) -> String in
+            m.id.count > totalNoteNameCharacters ? String(m.id.prefix(totalNoteNameCharacters)) + "…" : m.id
+        }
+        var text = shown.joined(separator: ", ")
+        if models.count > totalNoteModelLimit {
+            text += ", " + L10n.t("ve \(models.count - totalNoteModelLimit) tane daha", "and \(models.count - totalNoteModelLimit) more")
         }
         return text
     }

@@ -17,7 +17,7 @@ the largest token total, as the SQLite store does. `$HOME` selects the tree, so 
 synthetic one can be counted too. Prices follow scripts/pricelib.py (embedded snapshot, scripts/prices.json,
 the user's alias file unless TOKENBAR_PRICES_PINNED=1).
 """
-import glob, hashlib, json, os, pwd, re, sqlite3, subprocess, sys, time
+import glob, hashlib, json, math, os, pwd, re, sqlite3, subprocess, sys, time
 from datetime import datetime
 import oracle_db
 import oracle_g3
@@ -207,15 +207,32 @@ def claude():
     claude_gaps(records)
 
 
+def whole_seconds(t):
+    """Whole seconds of a start time, 0 when it does not fit a signed 64-bit number (the apps' Safe.seconds / run_seconds)."""
+    try:
+        f = math.floor(t)
+    except (OverflowError, ValueError):
+        return 0
+    return f if -(2 ** 63) <= f < 2 ** 63 else 0
+
+
 def note_cost_state(line, records):
     """Each record is cumulative for its run: per category the largest value stands."""
     try:
         o = json.loads(line)
     except ValueError:
         return
+    if not isinstance(o, dict):
+        return
+    # A record without a session is no row of any transcript: the apps skip it (Mac ScannerReaders, Windows core._cost_state).
+    session = o.get("sessionId")
+    if not isinstance(session, str) or not session or not isinstance(o.get("modelUsage"), dict):
+        return
+    # A run is its start time in WHOLE seconds (the apps floor it): two records of one run a fraction apart are one counter.
+    started = whole_seconds(epoch(o.get("startTime")))
     for raw, u in (o.get("modelUsage") or {}).items():
         # The spelling stays as logged here: `m[1m]` and `m` are two counters of one run. They are folded below.
-        key = (o.get("sessionId"), epoch(o.get("startTime")), raw)
+        key = (session, started, raw)
         new = [num(u, "inputTokens"), num(u, "cacheReadInputTokens"), num(u, "cacheCreationInputTokens"), num(u, "outputTokens")]
         records[key] = [max(a, b) for a, b in zip(records.get(key, [0, 0, 0, 0]), new)]
 
@@ -404,9 +421,14 @@ def omp():
                 omp_whole(u, "cacheRead"), omp_whole(u, "cacheWrite"), omp_whole(u, "output"), omp_whole(u, "reasoningTokens"))
 
 
+def qwen_session(o):
+    """The session of a record as the apps keep it: its name, "" for none (or for anything that is not a name)."""
+    return o["sessionId"] if isinstance(o.get("sessionId"), str) else ""
+
+
 def qwen():
     """Per-call lines, plus what a session's cumulative summary holds beyond them."""
-    seen = {}
+    kept = {}     # key -> (session, model, provider, counts) of the copy `add` keeps: a call logged twice is one call
     home = root(".qwen", "QWEN_HOME")
     for path in glob.iglob(home + "/usage/token-usage-*.jsonl"):
         for line in open(path, encoding="utf-8", errors="replace"):
@@ -414,16 +436,28 @@ def qwen():
                 o = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(o, dict) or not isinstance(o.get("id"), str) or not o["id"]:
+                continue                  # a call without an id has no key: the apps skip it
             inp, cached = num(o, "inputTokens"), num(o, "cachedTokens")
             model = o.get("model") or "unknown"
             auth = o.get("authType") or "qwen"
-            add(f"qwen:{o.get('id')}", epoch(o.get("timestamp")), auth, model,
-                max(0, inp - cached), min(cached, inp), 0, num(o, "outputTokens"), num(o, "thoughtsTokens"))
-            s = seen.setdefault((o.get("sessionId"), model), [0, 0, 0, 0, auth])
-            s[0] += inp
-            s[1] += cached
-            s[2] += num(o, "outputTokens")
-            s[3] += num(o, "thoughtsTokens")
+            counts = (max(0, inp - cached), min(cached, inp), 0, num(o, "outputTokens"), num(o, "thoughtsTokens"))
+            add(f"qwen:{o['id']}", epoch(o.get("timestamp")), auth, model, *counts)
+            if sum(counts[:4]) == 0:
+                continue
+            key = real_key(f"qwen:{o['id']}")
+            old = kept.get(key)
+            if old is None or sum(counts[:4]) > sum(old[3][:4]):
+                kept[key] = (qwen_session(o), model, auth, counts)
+    # What the calls hold per session and model, each call once (the stores' sums(), which the apps subtract from the summary).
+    seen = {}
+    for session, model, auth, counts in kept.values():
+        s = seen.setdefault((session, model), [0, 0, 0, 0, auth])
+        s[0] += counts[0] + counts[1]         # the input as logged: what is new plus what came from the cache
+        s[1] += counts[1]
+        s[2] += counts[3]
+        s[3] += counts[4]
+        s[4] = min(s[4], auth)
     path = home + "/usage_record.jsonl"
     if not os.path.exists(path):
         return
@@ -434,7 +468,7 @@ def qwen():
         except ValueError:
             continue
         for model, m in (r.get("models") or {}).items():
-            key = (r.get("sessionId"), model)
+            key = (qwen_session(r), model)
             if key not in latest or num(m, "totalTokens") >= num(latest[key][0], "totalTokens"):
                 latest[key] = (m, r.get("timestamp"))
     for (session, model), (m, ts) in latest.items():
@@ -525,16 +559,16 @@ def antigravity():
     for path in glob.iglob(HOME + "/.gemini/antigravity-cli/conversations/*.db"):
         conversation = os.path.basename(path)[:-3]
         try:
-            con = sqlite3.connect(f"file:{path}?immutable=1", uri=True)
-            # `gen_metadata` names the models: the enum at 1.3, the name at 1.19. A step carries only the enum.
-            names = {}
-            for (blob,) in con.execute("select data from gen_metadata order by idx"):
-                inner = proto(blob).get(1)
-                f = proto(inner) if isinstance(inner, bytes) else {}
-                if isinstance(f.get(3), int) and isinstance(f.get(19), bytes) and f[19]:
-                    names[f[3]] = f[19].decode("utf-8", "replace")
-            steps = con.execute("select idx, metadata from steps where step_type = 15 order by idx").fetchall()
-            con.close()
+            # Through oracle_db like every other database: a `-wal` beside it holds the newest steps, and `immutable=1` would not see it.
+            with oracle_db.readonly(path) as con:
+                # `gen_metadata` names the models: the enum at 1.3, the name at 1.19. A step carries only the enum.
+                names = {}
+                for (blob,) in con.execute("select data from gen_metadata order by idx"):
+                    inner = proto(blob).get(1)
+                    f = proto(inner) if isinstance(inner, bytes) else {}
+                    if isinstance(f.get(3), int) and isinstance(f.get(19), bytes) and f[19]:
+                        names[f[3]] = f[19].decode("utf-8", "replace")
+                steps = con.execute("select idx, metadata from steps where step_type = 15 order by idx").fetchall()
         except sqlite3.Error:
             continue
         rows = []
@@ -595,8 +629,7 @@ def main():
             elif os.path.isdir(path):
                 found = [path + "/opencode.db"] if os.path.isfile(path + "/opencode.db") else []
                 if entry["recursive"]:
-                    found += [db for db in glob.glob(path + "/**/opencode*.db", recursive=True)
-                              if "/data/opencode/" in db and db not in found]
+                    found += [db for db in glob.glob(path + "/**/opencode*.db", recursive=True) if db not in found]
                 for db in found:
                     opencode(db, entry["prefix"])
 

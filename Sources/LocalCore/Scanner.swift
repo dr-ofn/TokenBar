@@ -149,7 +149,7 @@ public final class UsageScanner {
                 do {
                     try readOpenCode(db: db, prefix: descriptor.keyPrefixes[0], &stat)
                 } catch {
-                    result.issues.append(SourceIssue(source: Self.sourceName(descriptor), message: "\(db): \(error)"))
+                    if let why = Self.readProblem(db, error) { result.issues.append(SourceIssue(source: Self.sourceName(descriptor), message: "\(db): \(why)")) }
                 }
             }
         }
@@ -234,7 +234,7 @@ public final class UsageScanner {
                 pendingEvents += read.events.count
                 bytes += read.end > offset ? read.end - offset : 0
             } catch {
-                problems.append("\(path): \(error)")
+                if let why = Self.readProblem(path, error) { problems.append("\(path): \(why)") }
             }
             if pending.count >= Self.batchFiles || pendingEvents >= Self.batchEvents { flush() }
         }
@@ -311,6 +311,22 @@ public final class UsageScanner {
         }
         if result.skippedLines > 0 { longLines[file.path] = max(longLines[file.path] ?? 0, result.skippedLines) }
         return result.endOffset
+    }
+
+    /// What to say about a file or database that could not be read: one short sentence in the interface language, never
+    /// Foundation's own dump (`Error Domain=NSCocoaErrorDomain Code=257 ... UserInfo=...`, with the path twice). Nil when the
+    /// file is simply gone (a log compressed or cleaned up between the listing and the read, as a folder that goes is
+    /// no problem): the next pass lists what is there. A message the readers wrote themselves (a SQLite error, a missing
+    /// zstd) stays as it is.
+    public static func readProblem(_ path: String, _ error: Error) -> String? {
+        if ExternalDB.isNoSuchFile(error) { return nil }
+        if isPermissionError(error) { return L10n.t("okunamıyor (izin yok)", "cannot be read (no permission)") }
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain || ns.domain == NSPOSIXErrorDomain {
+            if let st = fileInfo(path), (st.st_mode & S_IFMT) == S_IFDIR { return L10n.t("okunamıyor (dosya değil, klasör)", "cannot be read (a folder, not a file)") }
+            return L10n.t("okunamıyor", "cannot be read")
+        }
+        return String(describing: error)
     }
 
     static func fileInfo(_ path: String) -> Darwin.stat? {

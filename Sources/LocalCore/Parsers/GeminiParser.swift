@@ -2,7 +2,8 @@ import Foundation
 
 extension J {
     /// A token count held to `0...TokenCounts.fieldLimit`, so sums of two counts cannot overflow.
-    static func count(_ v: Any?) -> Int64 { min(max(int(v), 0), TokenCounts.fieldLimit) }
+    /// (Read as `util.count` on Windows: a JSON `true` is 1 here, as there.)
+    static func count(_ v: Any?) -> Int64 { min(max(int(v, booleans: true), 0), TokenCounts.fieldLimit) }
 }
 
 /// Gemini CLI chat recordings: `~/.gemini/tmp/<project>/chats/session-*.jsonl` (older builds wrote

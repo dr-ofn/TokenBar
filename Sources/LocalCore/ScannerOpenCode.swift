@@ -20,7 +20,7 @@ extension UsageScanner {
         guard let mainInfo = Self.fileInfo(path) else { return }
 
         // Each file on its own: a sum of two mtimes is the same for different pairs.
-        let stamp = Self.stamp(mainInfo) + "|" + (Self.fileInfo(path + "-wal").map(Self.stamp) ?? "-")
+        let stamp = Self.stamp(mainInfo) + "|" + (Self.fileInfo(ExternalDB.resolvedPath(path) + "-wal").map(Self.stamp) ?? "-")
         let stampKey = "dbstamp:" + path
         if store.meta(stampKey) == stamp { return }
 

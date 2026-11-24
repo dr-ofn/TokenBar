@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -41,6 +42,19 @@ def environment_offline(environ=None) -> bool:
     return v in ("1", "true", "yes", "on")
 
 
+class _HttpsOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """A catalogue host may send the GET somewhere else, but only to an HTTPS address: `http:` and `ftp:` are refused
+    (PRIVACY.md: HTTPS GET only; the Mac app's URLSession will not leave HTTPS either)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme.lower() != "https":
+            raise urllib.error.URLError("redirect to an address that is not HTTPS refused")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(_HttpsOnlyRedirects)
+
+
 def url_fetcher(source: str, etag: str | None):
     """One anonymous GET. Returns ("ok", bytes, etag) or ("notmodified",); raises FetchError."""
     req = urllib.request.Request(URLS[source], method="GET")
@@ -50,7 +64,7 @@ def url_fetcher(source: str, etag: str | None):
         req.add_header("If-None-Match", etag)
     try:
         deadline = _clock() + FETCH_DEADLINE
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with _opener.open(req, timeout=30) as resp:
             # One read at a time (read1 returns what has arrived): a server that drips a byte every few seconds never
             # trips the socket timeout, so the whole download has a limit of its own and the price lock is let go.
             read = getattr(resp, "read1", resp.read)
@@ -241,6 +255,18 @@ class PriceFeed:
             if _write_json(self._state_path(), {"failed": self._failed_memory}):
                 self._failed_memory = None
                 self._unwritable.discard("state")
+
+    def retry_held_writes(self) -> None:
+        """`_retry_held_writes` on its own: one try at writing what a pass kept in memory, with no network. A scan calls it, so a
+        cache folder that works again loses its warning at the next scan and not at the next price pass (hours away, or
+        never while Offline is on). A pass that is running right now does it itself and holds the gate: this one waits for
+        nobody."""
+        if not _gate.acquire(blocking=False):
+            return
+        try:
+            self._retry_held_writes()
+        finally:
+            _gate.release()
 
     def _failures(self) -> dict:
         if self._failed_memory is not None:

@@ -99,6 +99,16 @@ class PriceBook:
         """The feed's standing problem (an unwritable price cache), or None: a source problem for the window and the tray."""
         return getattr(self.feed, "cache_problem", None)
 
+    def retry_held_writes(self) -> None:
+        """One try at writing the price files a pass could not (no network; also while Offline or pinned): the standing
+        problem leaves as soon as the folder works again."""
+        retry = getattr(self.feed, "retry_held_writes", None)
+        if retry is not None:
+            try:
+                retry()
+            except Exception:
+                pass
+
     # ---- refreshing
     def refresh(self, force: bool = False):
         """Asks the network (at most once a day per source, unless `force`); reloads when something changed."""

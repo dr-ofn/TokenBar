@@ -1,5 +1,16 @@
 # Changelog
 
+## 9.0.7 — 2026-11-24
+Patch release: fixes for defects a review of the published 9.0.6 found and reproduced.
+
+- **A tool's database that is a symbolic link.** When a tool's database file is a link to a file elsewhere, TokenBar now reads the database, and its newest calls in the write-ahead log, where the link points, instead of next to the link: the newest calls were missing until the tool next folded its log into the database, and a database that held everything in its log could be read as empty. Nothing in the tool's folder is written, moved or removed; the copy TokenBar reads stays in its own temporary folder. The same on the Mac and Windows.
+- **Price warnings.** The "price cache cannot be written" warning stays until the cache can be written again: **Update prices**, offline mode and fixed prices no longer hide it while the folder is still read-only, and on Windows it leaves at the next scan once the folder works again. "Price update failed" leaves at the next successful price round.
+- **Mac: problems in plain words.** A log file that cannot be read for lack of permission, or a folder where a log file belongs, is named in a short sentence instead of a system error dump; a log file that disappears during a scan is not reported. A JSON `true` or `false` in a token count counts as 0, as on Windows. The total's note about models without a price lists the first 20 and counts the rest. A window of impossible size no longer stops the app.
+- **Windows: databases that are not files.** A database or its `-journal`, `-wal` or `-shm` that is a pipe, socket or device is skipped and named instead of stopping the scan, as on the Mac.
+- **Windows: command line.** Errors about unknown options pass through the same control-character filter as the rest of the output, and an `--output` file that cannot be written, or an impossible `--db`, ends with one line and exit code 2.
+- **Windows: prices.** A price download follows redirects only to HTTPS, so the only requests are the documented HTTPS GETs. One broken long-context tier in the LiteLLM catalogue drops that row instead of the whole catalogue; model names and tier keys accept ASCII digits only, and the spaces trimmed from a model name are the Mac's. Very cheap paid models show their rate instead of $0.
+- **Checks.** The independent twin used by the checks (`scripts/oracle.py`) now follows the apps for duplicate Qwen ids, Claude cost records without a session, Crush and Antigravity databases and custom opencode sources; the price tooling refuses negative prices. `scripts/check.sh` refuses a machine-specific path (a home folder on macOS, Linux or Windows) anywhere in the tracked files and fails if it cannot look.
+
 ## 9.0.6 — 2026-11-24
 Patch release: fixes for defects a review of the published 9.0.5 found and reproduced.
 
