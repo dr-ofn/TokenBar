@@ -10,9 +10,10 @@ import math
 import os
 import re
 import sqlite3
+import stat
 
 from .. import extdb
-from ..util import (JSON_ERRORS, BadFile, finite, is_number, epoch, iter_lines, line_hash, load_json_file, loads, read_json_file, text, mtime, walk_files,
+from ..util import (JSON_ERRORS, BadFile, finite, is_number, epoch, iter_lines, line_hash, load_json_file, loads, note_unreadable, read_json_file, text, mtime, walk_files,
                     whole, clamp, longpath, to_seconds)
 from .base import db_stamp, family
 
@@ -22,12 +23,25 @@ WHOLE_PROMPT_FROM_MS = 1_762_041_600_000  # 2025-11-02T00:00:00Z
 def _listdir(path):
     try:
         return sorted(os.listdir(longpath(path)))
+    except FileNotFoundError:
+        return []
+    except PermissionError:
+        note_unreadable(path)
+        return []
     except OSError:
         return []
 
 
-def _isfile(p):
-    return os.path.isfile(longpath(p))
+def _isfile(p, folder=None):
+    """A file that is there. A permission error on the way names `folder` (the file's own folder by default); a missing
+    file or path is silent."""
+    try:
+        return stat.S_ISREG(os.stat(longpath(p)).st_mode)
+    except PermissionError:
+        note_unreadable(folder or os.path.dirname(p))
+        return False
+    except (OSError, ValueError):
+        return False
 
 
 # ---------------------------------------------------------------------------------------------- task logs
@@ -297,7 +311,7 @@ def read_copilot_chat(ctx, d, path, offset, limit, settled, sink):
 # <continue>\dev_data\0.2.0\tokensGenerated.jsonl: one line per generation, no cache counts.
 
 def continue_files(ctx, d):
-    return [p for p in (os.path.join(r, "dev_data", "0.2.0", "tokensGenerated.jsonl") for r in ctx.roots(d)) if _isfile(p)]
+    return [p for r in ctx.roots(d) for p in [os.path.join(r, "dev_data", "0.2.0", "tokensGenerated.jsonl")] if _isfile(p, r)]
 
 
 @family("continue-tokens", continue_files, mode="lines")
@@ -388,7 +402,7 @@ def read_zed(ctx, d, path, offset, limit, settled, sink):
         total = _zed_usage(thread.get("cumulative_token_usage"))
         gap = [max(0, a - b) for a, b in zip(total, sums)]
         if sum(gap):
-            sink.add(f"zed:adj:{tid}", when, provider, name, gap[0], gap[1], gap[2], gap[3], 0)
+            sink.add(f"zed:adj:{tid}", when, provider, name, gap[0], gap[1], gap[2], gap[3], 0, adjustment=True)
     for message in dict.fromkeys(unreadable[:5]):      # the first five, as the Mac app names them
         sink.issue(f"{path}: {message}")
     if len(unreadable) > 5:

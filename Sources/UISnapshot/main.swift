@@ -50,7 +50,7 @@ func contrastChecks() -> Int {
     let now = Date().timeIntervalSince1970
     func event(_ key: String, _ model: String, _ ago: Double, _ input: Int64, _ output: Int64) -> UsageEvent {
         UsageEvent(key: key, provider: "test", model: model, timestamp: now - ago,
-                   tokens: TokenCounts(input: input, output: output), session: key, file: "test")
+                   tokens: TokenCounts(input: input, output: output), session: key, file: "test", adjustment: key.contains(":adj:"))
     }
     try? store.insertEvents([event("cc:a", "claude-opus-5-5", 60, 200_000, 20_000),
                              event("cx:b", "gpt-6-luna", 30, 500_000, 9_000),
@@ -426,6 +426,69 @@ func preferencesChecks() -> Int {
     return failed
 }
 
+/// The price cache folder cannot be written: the feed says so once, in the report of a background pass nobody reads; the app
+/// still shows it (the price book keeps the note).
+@MainActor func cacheWarningChecks(_ lang: Lang) async -> Int {
+    L10n.setLanguage(lang)
+    defer { L10n.setLanguage(nil) }
+    var failed = 0
+    func expect(_ name: String, _ cond: Bool) {
+        print((cond ? "ok   " : "FAIL ") + "[\(lang.rawValue)] " + name)
+        if !cond { failed += 1 }
+    }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tokenbar-cachewarn-\(UUID().uuidString.prefix(8))").path
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let model = AppModel(engine: Engine(home: dir, dbPath: dir + "/notice.sqlite"))
+    struct OneCatalogue: PriceFetching {
+        func fetch(_ source: PriceSource, etag: String?) async throws -> PriceFetchResponse {
+            let text: String
+            switch source {
+            case .openrouter: text = #"{"data":[{"id":"vendor/zz-ui","name":"Zz","pricing":{"prompt":"0.000001","completion":"0.000002"}}]}"#
+            case .litellm: text = #"{"zz-ui":{"input_cost_per_token":1e-6,"output_cost_per_token":2e-6,"mode":"chat"}}"#
+            case .modelsdev: text = #"{"prov":{"models":{"zz-ui":{"cost":{"input":1,"output":2}}}}}"#
+            }
+            return .ok(Data(text.utf8), etag: nil)
+        }
+    }
+    let cache = URL(fileURLWithPath: dir + "/readonly-cache", isDirectory: true)
+    try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+    chmod(cache.path, 0o555)
+    defer { chmod(cache.path, 0o755) }
+    expect("uyarı: önbellek sorunu yokken fiyat uyarısı yok", model.notice == nil && PriceBook.cacheWarning == nil)
+    let feed = PriceFeed(PriceFeed.Config(cacheDirectory: cache, offline: false, fetcher: OneCatalogue()))
+    let passed = await feed.refresh()
+    PriceBook.noteWarnings(passed)
+    model.syncPriceWarning()
+    expect("uyarı: yazılamayan fiyat önbelleği arayüzde görünüyor (\(model.notice ?? "-"))",
+           (model.notice ?? "").contains(L10n.t("fiyat önbelleği yazılamıyor: ", "price cache cannot be written: ") + cache.path))
+    let later = await feed.refresh()
+    PriceBook.noteWarnings(later)
+    expect("uyarı: ikinci turun raporu sessiz, not fiyat defterinde kalıyor", later.warnings.isEmpty && PriceBook.cacheWarning != nil)
+    // The folder can be written again: the next pass writes, the warning is gone from the picture too; broken again it returns.
+    chmod(cache.path, 0o755)
+    var config = PriceFeed.Config(cacheDirectory: cache, offline: false, fetcher: OneCatalogue())
+    config.ttl = 0
+    let mendedFeed = PriceFeed(config)
+    await model.refreshPricesInBackground { () async -> PriceRefreshReport? in
+        let report = await mendedFeed.refresh()
+        PriceBook.noteWarnings(report)
+        return report
+    }
+    expect("uyarı: önbellek yazılabilir olunca uyarı arayüzden de kalkıyor (\(model.notice ?? "-"))",
+           PriceBook.cacheWarning == nil && model.priceWarning == nil)
+    chmod(cache.path, 0o555)
+    let brokenFeed = PriceFeed(config)
+    await model.refreshPricesInBackground { () async -> PriceRefreshReport? in
+        let report = await brokenFeed.refresh()
+        PriceBook.noteWarnings(report)
+        return report
+    }
+    expect("uyarı: yeniden bozulunca uyarı yeniden çıkıyor", (model.notice ?? "").contains(cache.path))
+    PriceBook.clearCacheWarning()
+    return failed
+}
+
 /// UI invariants that can be checked without a screen.
 @MainActor func selfcheck() async throws -> Int32 {
     // The prices the checks expect are the embedded snapshot's and the hand-made tables': never this Mac's price cache
@@ -456,6 +519,8 @@ func preferencesChecks() -> Int {
     failed += preferencesChecks()
     failed += noticeChecks(.tr)
     failed += noticeChecks(.en)
+    failed += await cacheWarningChecks(.tr)
+    failed += await cacheWarningChecks(.en)
     print(failed == 0 ? "UI SELF-CHECK OK" : "\(failed) UI SELF-CHECK FAILED")
     return failed == 0 ? 0 : 1
 }

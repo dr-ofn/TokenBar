@@ -162,6 +162,13 @@ public struct PriceRefreshReport: Sendable {
     /// Seconds until the soonest remembered failure (one a source had before this pass, which left it alone) is over,
     /// when the pass skipped a source for that. The app asks again then, not after the full wait.
     public var retryIn: TimeInterval?
+    /// Things that are wrong but are not a failed source (the cache folder cannot be written). Said once per process.
+    public var warnings: [String] = []
+    /// Whether this pass looked at the cache folder at all (a pass that was offline or stopped did not), and what is wrong
+    /// with it now: the words while the cache or the state file cannot be written, nil once a write went through. The
+    /// app shows it as long as it holds, and not after.
+    public var cacheChecked = false
+    public var cacheProblem: String?
 
     public init() {}
 
@@ -176,6 +183,19 @@ public struct PriceRefreshReport: Sendable {
 /// catalogue's JSON never replaces the cache. After a failed attempt the next one waits `retryAfterFailure`.
 /// Nothing user-specific leaves the machine; `TOKENBAR_OFFLINE=1` switches the network off for good.
 public final class PriceFeed: @unchecked Sendable {
+    /// What a folder that cannot be written could not keep, held for the process (the app makes a new feed for every pass).
+    /// A catalogue fetched now is not fetched again before its wait is over, whether or not the disk took it.
+    private struct Unsaved {
+        var caches: [PriceSource: CacheFile] = [:]
+        var failed: [String: Double]?
+        var noted = false
+    }
+    private static let unsavedLock = NSLock()
+    nonisolated(unsafe) private static var unsaved: [String: Unsaved] = [:]
+    private var unsavedKey: String { config.cacheDirectory.standardizedFileURL.path }
+    private let warningLock = NSLock()
+    private var pendingWarning: String?
+
     public struct Config: Sendable {
         public var cacheDirectory: URL
         public var ttl: TimeInterval = 24 * 3600
@@ -231,6 +251,13 @@ public final class PriceFeed: @unchecked Sendable {
 
     /// A cache file that is not ours, not this schema or has no priced row is as good as none.
     func readCache(_ source: PriceSource) -> CacheFile? {
+        let disk = readDiskCache(source)
+        guard let kept = Self.unsavedLock.withLock({ Self.unsaved[unsavedKey]?.caches[source] }) else { return disk }
+        if let disk, disk.fetched >= kept.fetched { return disk }
+        return kept
+    }
+
+    private func readDiskCache(_ source: PriceSource) -> CacheFile? {
         guard let data = try? Data(contentsOf: cacheURL(source)),
               let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let schema = root["schema"] as? Int, schema == 1 || schema == PriceFeed.schema, (root["source"] as? String) == source.rawValue,
@@ -254,23 +281,81 @@ public final class PriceFeed: @unchecked Sendable {
                                    "fetched": fetched.timeIntervalSince1970, "rows": winners.mapValues { (row: CatalogRow) -> [Any] in row.compact }]
         if !exact.isEmpty { root["exact"] = exact.mapValues { (row: CatalogRow) -> [Any] in row.compact } }
         if let etag { root["etag"] = etag }
-        writeJSON(root, to: cacheURL(source))
+        if writeJSON(root, to: cacheURL(source)) {
+            Self.unsavedLock.withLock { _ = Self.unsaved[unsavedKey]?.caches.removeValue(forKey: source) }
+            return
+        }
+        // The disk would not take it: kept in memory, so the next pass does not ask the network again, and said once.
+        let file = CacheFile(etag: etag, fetched: fetched, rows: winners, exact: exact)
+        Self.unsavedLock.withLock {
+            var entry = Self.unsaved[unsavedKey] ?? Unsaved()
+            entry.caches[source] = file
+            Self.unsaved[unsavedKey] = entry
+        }
+        noteUnwritable()
     }
 
-    private func writeJSON(_ object: [String: Any], to url: URL) {
+    /// The words while something the feed keeps is held only in memory (a catalogue or the failures the disk would not take).
+    /// When nothing is, the next breakage is said again.
+    private func currentProblem() -> String? {
+        let unsaved: Bool = Self.unsavedLock.withLock {
+            guard var entry = Self.unsaved[unsavedKey] else { return false }
+            let held = !entry.caches.isEmpty || entry.failed != nil
+            if !held, entry.noted { entry.noted = false; Self.unsaved[unsavedKey] = entry }
+            return held
+        }
+        return unsaved ? L10n.t("fiyat önbelleği yazılamıyor: ", "price cache cannot be written: ") + config.cacheDirectory.path : nil
+    }
+
+    /// Says once per process that the cache folder cannot be written (the report of the pass that meets it carries the words).
+    private func noteUnwritable() {
+        let first: Bool = Self.unsavedLock.withLock {
+            var entry = Self.unsaved[unsavedKey] ?? Unsaved()
+            let first = !entry.noted
+            entry.noted = true
+            Self.unsaved[unsavedKey] = entry
+            return first
+        }
+        if first {
+            let note = L10n.t("fiyat önbelleği yazılamıyor: ", "price cache cannot be written: ") + config.cacheDirectory.path
+            warningLock.withLock { pendingWarning = note }
+        }
+    }
+
+    /// False when nothing was written (the folder cannot be made or written, or the object holds NaN or Infinity).
+    @discardableResult
+    private func writeJSON(_ object: [String: Any], to url: URL) -> Bool {
         // `data(withJSONObject:)` raises an Objective-C exception, which nothing catches, on NaN and Infinity.
         guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return }
-        try? FileManager.default.createDirectory(at: config.cacheDirectory, withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return false }
+        do {
+            try FileManager.default.createDirectory(at: config.cacheDirectory, withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func failures() -> [String: Double] {
+        if let kept = Self.unsavedLock.withLock({ Self.unsaved[unsavedKey]?.failed }) { return kept }
         guard let data = try? Data(contentsOf: stateURL), let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
         return (root["failed"] as? [String: Double]) ?? [:]
     }
 
-    private func saveFailures(_ failed: [String: Double]) { writeJSON(["failed": failed], to: stateURL) }
+    private func saveFailures(_ failed: [String: Double]) {
+        // A failure the disk will not remember is remembered here, or a dead catalogue is asked for again at every pass.
+        if writeJSON(["failed": failed], to: stateURL) {
+            Self.unsavedLock.withLock { Self.unsaved[unsavedKey]?.failed = nil }
+        } else {
+            Self.unsavedLock.withLock {
+                var entry = Self.unsaved[unsavedKey] ?? Unsaved()
+                entry.failed = failed
+                Self.unsaved[unsavedKey] = entry
+            }
+            noteUnwritable()
+        }
+    }
 
     // MARK: Reading
 
@@ -307,6 +392,11 @@ public final class PriceFeed: @unchecked Sendable {
             report.skipped = PriceSource.allCases
             return report
         }
+        // What the disk would not take earlier is offered again: once it does, the problem is over.
+        for (source, kept) in Self.unsavedLock.withLock({ Self.unsaved[unsavedKey]?.caches ?? [:] }) {
+            writeCache(source, winners: kept.rows, exact: kept.exact, etag: kept.etag, fetched: kept.fetched)
+        }
+        let heldFailures = Self.unsavedLock.withLock { Self.unsaved[unsavedKey]?.failed != nil }
         var failed = failures()
         let startFailed = failed
         for source in PriceSource.allCases {
@@ -350,7 +440,10 @@ public final class PriceFeed: @unchecked Sendable {
                 failed[source.rawValue] = now.timeIntervalSince1970
             }
         }
-        if failed != startFailed { saveFailures(failed) }
+        if failed != startFailed || heldFailures { saveFailures(failed) }
+        report.cacheChecked = true
+        report.cacheProblem = currentProblem()
+        if let note = warningLock.withLock({ () -> String? in defer { pendingWarning = nil }; return pendingWarning }) { report.warnings.append(note) }
         return report
     }
 

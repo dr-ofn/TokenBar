@@ -19,6 +19,7 @@ from .fmt import calls, money, period_label, rate, tokens
 from .i18n import t
 from .paths import Env
 from .prices.book import PriceBook
+from .prices.engine import display_safe
 from .report import PERIODS, build_report, to_json
 from .scanner import Scanner
 from .store import Store, StoreError
@@ -95,21 +96,30 @@ def run_cli(argv: list[str]) -> int:
         return 0
     if args.home:
         # Read by its real path, so two spellings of one home (a link, a different case) are one set of files.
-        args.home = os.path.realpath(args.home)
+        try:
+            args.home = os.path.realpath(args.home)
+        except (OSError, ValueError) as e:       # a name the system cannot take (an embedded NUL): said, not a traceback
+            print("tokenbar: " + display_safe(t("--home çözülemedi", "cannot resolve --home") + f" ({args.home!r}): {e}"), file=sys.stderr)
+            return 2
     env = Env.for_home(args.home) if args.home else Env.from_os()
     # The index and the price cache are TokenBar's own files: they live with the person running it (or in `--db`),
     # never inside the folder that is being read. Another home (`--home` without `--db`) gets an index of its own there,
     # as on the Mac, so its calls are never mixed into the person's own index.
     own = Env.from_os()
     db_path = args.db or (home_index_path(own, args.home) if args.home else own.db_path())
-    if args.rebuild and os.path.normcase(os.path.realpath(db_path)) == os.path.normcase(os.path.realpath(own.db_path())):
+    try:
+        at_default = args.rebuild and os.path.normcase(os.path.realpath(db_path)) == os.path.normcase(os.path.realpath(own.db_path()))
+    except (OSError, ValueError) as e:
+        print("tokenbar: " + display_safe(t("--db çözülemedi", "cannot resolve --db") + f" ({db_path!r}): {e}"), file=sys.stderr)
+        return 2
+    if at_default:
         print("tokenbar: --rebuild " + t("reddedildi: indeks varsayılan konumda", "refused: the index is at its default location")
-              + f" ({db_path})", file=sys.stderr)
+              + f" ({display_safe(db_path)})", file=sys.stderr)
         return 2
     try:
         store = Store(db_path)
     except StoreError as e:
-        print(f"tokenbar: {e}", file=sys.stderr)
+        print(f"tokenbar: {display_safe(str(e))}", file=sys.stderr)
         return 1
     try:
         if args.index:
@@ -124,16 +134,18 @@ def run_cli(argv: list[str]) -> int:
             if report is not None:
                 print(t("fiyatlar: ", "prices: ") + f"{len(report.updated)} updated, {len(report.not_modified)} not modified, "
                       f"{len(report.fresh)} fresh, {len(report.failed)} failed", file=sys.stderr)
+                for note in report.notes:
+                    print(display_safe(note), file=sys.stderr)
         detected: list[str] = Catalog(env).detected()
         if not args.no_scan:
             result = Scanner(store, env).scan()
             detected = result.detected
             for source, message in result.issues:
-                print(f"{t('kaynak hatası', 'source error')} · {source}: {message}", file=sys.stderr)
+                print(f"{t('kaynak hatası', 'source error')} · {display_safe(source)}: {display_safe(message)}", file=sys.stderr)
         report = build_report(store, book, args.window)
         problem = book.alias_problem()
         if problem:
-            print(f"{t('kaynak hatası', 'source error')} · model-aliases.json: {problem}", file=sys.stderr)
+            print(f"{t('kaynak hatası', 'source error')} · model-aliases.json: {display_safe(problem)}", file=sys.stderr)
         text = json.dumps(to_json(report, detected), indent=1, sort_keys=True) if args.json else render_text(report, args.window)
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
@@ -148,10 +160,10 @@ def run_cli(argv: list[str]) -> int:
 def render_text(report, window: str) -> str:
     lines = [f"{period_label(window)}: {tokens(report.tokens)} {t('token', 'tokens')} · {money(report.cost)} · {calls(report.calls)}"]
     for h in report.harnesses:
-        lines.append(f"{h.name}: {tokens(h.tokens)} · {money(h.cost)} · {calls(h.calls)}")
+        lines.append(f"{display_safe(h.name)}: {tokens(h.tokens)} · {money(h.cost)} · {calls(h.calls)}")
         for m in h.models:
             price = f"${rate(m.entry['input'])}/${rate(m.entry['output'])} per M" if m.entry else t("fiyat yok", "no price")
-            lines.append(f"  {m.name} [{m.provider}]  {tokens(m.tokens)} · {money(m.cost)} · {price} · {calls(m.calls)}")
+            lines.append(f"  {display_safe(m.name)} [{display_safe(m.provider)}]  {tokens(m.tokens)} · {money(m.cost)} · {price} · {calls(m.calls)}")
     if not report.harnesses:
         lines.append(t("  (bu aralıkta çağrı yok)", "  (no calls in this window)"))
     return "\n".join(lines)

@@ -6,11 +6,18 @@ from .report import PERIOD_ORDER
 
 
 def tokens(n: int) -> str:
+    """1.2M, 113.6K ... The unit is chosen after the rounding (the Mac's `UsageText.tokens`): 999 950 is "1M" (999.95K
+    rounds to 1000.0), never "1000K"; the band below it keeps its tenth ("999.9K") where whole thousands would say 1000."""
     n = int(n)
-    for unit, size in (("B", 10 ** 9), ("M", 10 ** 6), ("K", 10 ** 3)):
-        if n >= size:
+    for unit, size, first in (("B", 10 ** 9, 999_950_000), ("M", 10 ** 6, 999_950), ("K", 10 ** 3, 1000)):
+        if n >= first:
             v = n / size
-            text = f"{v:.0f}" if v >= 100 else f"{v:.1f}" if v >= 10 else f"{v:.2f}"
+            if 100 <= v < 999.5 or v >= 1000:
+                text = f"{v:.0f}"
+            elif v >= 10:
+                text = f"{v:.1f}"
+            else:
+                text = f"{v:.2f}"
             if "." in text:
                 text = text.rstrip("0").rstrip(".")
             return text + unit

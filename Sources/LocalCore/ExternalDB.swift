@@ -19,6 +19,26 @@ final class ExternalDB {
     /// `immutable` skips locking entirely (for files whose writer holds them without WAL sharing);
     /// otherwise the database is opened read-only so a live writer is respected.
     init(path: String, immutable: Bool) throws {
+        // Looked at before anything opens it: a pipe under the database's name, or under the name of a file SQLite opens
+        // beside it (`-journal` when it checks for a hot journal, `-wal`, `-shm`), would block the open until something
+        // writes to it. A pipe, socket or device is no database and no journal (the same rule as `LineReader`): the
+        // database is named and left alone.
+        // SQLite follows a link and opens the side files of the file it leads to: the real path is looked at as well as the
+        // link's own folder.
+        var spellings = [path]
+        if let resolved = realpath(path, nil) {
+            let real = String(cString: resolved)
+            free(resolved)
+            if real != path { spellings.append(real) }
+        }
+        for spelling in spellings {
+            for suffix in ["", "-journal", "-wal", "-shm"] {
+                var st = Darwin.stat()
+                if stat(spelling + suffix, &st) == 0, [S_IFIFO, S_IFSOCK, S_IFCHR, S_IFBLK].contains(st.st_mode & S_IFMT) {
+                    throw StoreError(message: L10n.t("\(spelling + suffix): düzenli dosya değil, veritabanı açılmadı", "\(spelling + suffix): not a regular file, the database was not opened"))
+                }
+            }
+        }
         var openPath = path
         var query = immutable ? "immutable=1" : "mode=ro"
         if !immutable, Self.usesWAL(path) {

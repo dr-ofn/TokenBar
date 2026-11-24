@@ -206,7 +206,7 @@ func runProbe(_ name: String, dir: String) throws {
         print("recorded=\(try store.fileRecords().keys.filter { $0.hasSuffix(".zst") }.count)")
         print("events=\(try store.eventCount())")
     default:
-        print(g2Probe(name, dir: dir) ?? saglamlikProbe(name, dir: dir) ?? fix902Probe(name, dir: dir) ?? fix904Probe(name, dir: dir) ?? fix905Probe(name, dir: dir) ?? "unknown probe")
+        print(g2Probe(name, dir: dir) ?? saglamlikProbe(name, dir: dir) ?? fix902Probe(name, dir: dir) ?? fix904Probe(name, dir: dir) ?? fix905Probe(name, dir: dir) ?? fix906Probe(name, dir: dir) ?? "unknown probe")
     }
 }
 func probe(_ name: String, dir: String = "", env: [String: String] = [:]) -> (status: Int32, out: String) {
@@ -406,7 +406,7 @@ do {
         let s = try UsageStore(path: dir + "/usage.sqlite")
         let tokens = TokenCounts(input: 100, cacheRead: 10, output: 50)
         let want = ModelPrice(model: "gpt-6-luna").baseParts(tokens).total
-        try s.insertEvents([UsageEvent(key: "devin:adj:t1", provider: "devin", model: "gpt-6-luna", timestamp: 1793968800, tokens: tokens, session: "s", file: "f")])
+        try s.insertEvents([UsageEvent(key: "devin:adj:t1", provider: "devin", model: "gpt-6-luna", timestamp: 1793968800, tokens: tokens, session: "s", file: "f", adjustment: true)])
         let rep = try s.usageBook(now: now).report(for: .all)
         let dev = rep.harnesses.first(where: { $0.harness == .devin })
         check("devin adj counts tokens and cost without call", rep.counts.total == tokens.total && relEqual(rep.cost, want) && rep.callCount == 0 && dev?.calls == 0)
@@ -857,6 +857,7 @@ do {
     try fix903Checks(tempDir: tempDir)
     try fix904Checks(tempDir: tempDir)
     try fix905Checks(tempDir: tempDir)
+    try fix906Checks(tempDir: tempDir)
 
     if !skipped.isEmpty { print("\(skipped.count) check(s) skipped, not run: \(skipped.joined(separator: "; "))") }
     if failures == 0 { print("ALL CHECKS PASS") } else { print("\(failures) FAILED") }

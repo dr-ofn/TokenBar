@@ -95,6 +95,10 @@ class PriceBook:
             return 0.0, False
         return call_cost(entry, inp, cr, cw, out, cw1h, tiered), True
 
+    def cache_problem(self) -> str | None:
+        """The feed's standing problem (an unwritable price cache), or None: a source problem for the window and the tray."""
+        return getattr(self.feed, "cache_problem", None)
+
     # ---- refreshing
     def refresh(self, force: bool = False):
         """Asks the network (at most once a day per source, unless `force`); reloads when something changed."""

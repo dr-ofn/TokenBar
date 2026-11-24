@@ -82,6 +82,23 @@ extension TokenCounts {
 
 /// One model call from any harness log.
 public struct UsageEvent: Sendable {
+    /// Every prefix that can hold the rows a prefix made from a raw id stands for (`cline:<task>:`, `devin:<session>:db:`): its
+    /// `adj#gercek` form and, when that differs, the prefix itself, for the rows a 9.0.5 index wrote under the raw id. Never for
+    /// the adjustment prefixes (`cc:adj:`, `qwen:adj:`, `zed:adj:`), which are fixed names.
+    public static func realPrefixes(_ prefix: String) -> [String] {
+        let real = realKey(prefix)
+        return real == prefix ? [prefix] : [real, prefix]
+    }
+
+    /// The key of a real (not adjustment) event: a second component of exactly `adj` becomes `adj#gercek`.
+    public static func realKey(_ key: String) -> String {
+        guard let colon = key.firstIndex(of: ":") else { return key }
+        let rest = key[key.index(after: colon)...]
+        let second = rest.firstIndex(of: ":").map { rest[..<$0] } ?? rest
+        guard second == "adj" else { return key }
+        return String(key[...colon]) + "adj#gercek" + rest.dropFirst(3)
+    }
+
     public var key: String        // stable dedup key; its prefix names the harness
     public var provider: String   // e.g. "anthropic"
     public var model: String      // as the log names it
@@ -91,9 +108,12 @@ public struct UsageEvent: Sendable {
     public var project: String?
     public var file: String
 
+    /// `adjustment` is true only for the rows that top a cumulative figure up (`cc:adj:...`, `qwen:adj:...`, `zed:adj:...`).
+    /// A real call whose second key component is exactly `adj` (a Claude message id, a Cline task id) is stored as
+    /// `adj#gercek`, so it is never taken for an adjustment row.
     public init(key: String, provider: String, model: String, timestamp: Double, tokens: TokenCounts,
-                session: String, project: String? = nil, file: String) {
-        self.key = key
+                session: String, project: String? = nil, file: String, adjustment: Bool = false) {
+        self.key = adjustment ? key : Self.realKey(key)
         self.provider = provider
         self.model = model
         self.timestamp = timestamp

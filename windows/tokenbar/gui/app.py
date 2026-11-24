@@ -10,6 +10,7 @@ import threading
 import tkinter as tk
 
 from .. import __version__
+from ..store import StoreError
 from ..fmt import money, period_short, tokens
 from ..i18n import t
 from . import startup
@@ -185,12 +186,46 @@ def background_pass(model, requests, state, now=None) -> None:
                 pass
 
 
+def index_error_dialog(exc: StoreError) -> int:
+    """Shows why the index cannot open and exits (Mac NoReportView): no tray, no crash."""
+    from tkinter import messagebox
+    msg = t(
+        "TokenBar bu kullanım indeksini açamıyor.\n\n"
+        f"{exc}\n\n"
+        "İndeks dosyası bozuk ya da başka bir TokenBar sürümüne ait olabilir. "
+        "Çıkmak için Tamam'a basın.",
+        "TokenBar could not open this usage index.\n\n"
+        f"{exc}\n\n"
+        "The index file may be corrupt or belong to another version of TokenBar. "
+        "Press OK to quit.")
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("TokenBar", msg, parent=root)
+    except Exception:           # no display, no Tk: the text still goes where a console would show it
+        try:
+            print(msg, file=sys.stderr)
+        except Exception:
+            pass
+    try:
+        if root is not None:
+            root.destroy()
+    except Exception:
+        pass
+    return 1
+
+
 def run_gui(argv) -> int:
     if "--selftest-gui" in argv:
         return selftest_gui(argv)
     if acquire_single_instance() is None:
         return 0
-    return _run(argv, AppModel(), None)
+    try:
+        model = AppModel()
+    except StoreError as e:
+        return index_error_dialog(e)
+    return _run(argv, model, None)
 
 
 def _run(argv, model: AppModel, probe) -> int:

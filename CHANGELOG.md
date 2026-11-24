@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.0.6 — 2026-11-24
+Patch release: fixes for defects a review of the published 9.0.5 found and reproduced.
+
+- **A call whose id is `adj`.** A real call whose message, task or session id is exactly `adj` was taken for one of TokenBar's own correction rows: it counted as no call, lost its long-context price tier, and in Claude Code the call itself could be replaced. Such calls are now stored under their own key and count normally, on the Mac and Windows. Already indexed calls of this kind are corrected by rebuilding the index (`tokenbar-cli --rebuild`).
+- **Price cache that cannot be written.** If TokenBar's price cache folder cannot be written, the catalogues it downloaded are kept in memory instead of being fetched again on every price round, so the "at most one request per catalogue a day" promise in PRIVACY.md holds; the problem ("price cache cannot be written") stays among the scan warnings, in the app's panel too, until the cache can be written again.
+- **Folders that cannot be read.** opencode, Kilo Code, Continue and Copilot Chat now name a log folder they are not permitted to read, as the other tools have since 9.0.5. A folder that disappears while it is being scanned is no longer reported as unreadable. On the Mac, problems with Kilo Code's or a custom source's database carry that source's name instead of "opencode", and a log file that cannot be opened for lack of permission says so instead of "no such file".
+- **Mac: databases that are not files.** A pipe, socket or device carrying a database's name (opencode, Devin, Crush and the other database readers) no longer freezes the scan, nor does such a file next to a database (its `-journal`, `-wal` or `-shm`); the database is skipped and named.
+- **Names on screen.** Left-to-right/right-to-left marks and line or paragraph separators are removed from catalogue model names as well, and `tokenbar-cli`'s text report removes control and text-direction characters from model and provider names and from paths in warnings (the JSON output is unchanged). On Windows a catalogue name that is not text is ignored, as on the Mac.
+- **Command line.** `tokenbar-cli --home DIR` on the Mac resolves `DIR` exactly as the Windows console mode does (symbolic links, `..` and links that point to a folder that does not exist yet), so one home always gets one index; a home that cannot be resolved (a link that cannot be read) is an error instead of a scan of another folder.
+- **Windows.** A damaged or incompatible index no longer stops the app before its window appears: it shows a message with the problem and quits when you press OK. Counts just under a million or a billion read "1M" / "1B" instead of "1000K" / "1000M". The README describes `--home`'s separate index.
+- **Price tooling.** The scripts that build the bundled price snapshot refuse `true`/`false` and infinite numbers in a catalogue, as the apps have since 9.0.5.
+
 ## 9.0.5 — 2026-11-24
 Patch release: fixes for defects a review of the published 9.0.4 found and reproduced.
 

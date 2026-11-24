@@ -7,7 +7,7 @@ import threading
 import time
 
 from ..catalog import Catalog
-from ..i18n import set_language
+from ..i18n import set_language, t
 from ..paths import Env
 from ..prices.book import PriceBook
 from ..report import PERIOD_ORDER, Report, build_report
@@ -98,11 +98,25 @@ class AppModel:
                 problem = None
             if problem:
                 result.issues.append(("model-aliases.json", problem))
+            self._add_price_problem(result)
             self.last_scan, self.last_scan_time = result, time.time()
             return result
         finally:
             self.scanning = False
             self._scan_lock.release()
+
+    def _add_price_problem(self, result) -> None:
+        """An unwritable price cache is a standing problem: listed with the source problems on every scan and as soon as
+        the price pass finds it, whichever thread (and whichever pass) said it first. It leaves the list the moment the
+        feed can write again (an entry of an earlier pass does not stay until the next scan)."""
+        try:
+            problem = self.book.cache_problem()
+        except Exception:
+            problem = None
+        label = t("fiyatlar", "prices")
+        result.issues[:] = [i for i in result.issues if i[0] != label]
+        if problem:
+            result.issues.append((label, problem))
 
     def report(self, period: str | None = None) -> Report:
         return build_report(self.store, self.book, period or self.period)
@@ -110,7 +124,10 @@ class AppModel:
     def update_prices(self, force: bool = False):
         """Fetches the price lists (a day's cache is respected unless `force`, the menu's "Update prices"); returns the
         feed's report or None when offline."""
-        return self.book.refresh(force)
+        report = self.book.refresh(force)
+        if self.last_scan is not None:
+            self._add_price_problem(self.last_scan)
+        return report
 
     def detected(self) -> tuple[list[str], list[str]]:
         """(countable tools found, found but not countable), from the last scan or the folders now."""

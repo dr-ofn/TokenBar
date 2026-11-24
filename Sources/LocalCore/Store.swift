@@ -216,7 +216,11 @@ public final class UsageStore {
             let hold = try db.prepare("INSERT OR IGNORE INTO event_files(key, file) VALUES(?,?)")
             let releaseOwn = try db.prepare("DELETE FROM event_files WHERE file = ?3 AND key >= ?1 AND key < ?2")
             for u in updates {
-                for prefix in u.retirePrefixes {
+                // The prefixes are made from the ids of real events (a task, a session): an id that is exactly `adj` is stored
+                // as `adj#gercek` (`UsageEvent.realKey`), so the prefix that finds its rows says so too; the raw prefix goes with it, for the
+                // rows a 9.0.5 index holds under the raw id.
+                let retirePrefixes = u.retirePrefixes.flatMap(UsageEvent.realPrefixes)
+                for prefix in retirePrefixes {
                     retireFromFile.reset()
                     retireFromFile.bind(1, prefix)
                     retireFromFile.bind(2, Self.upperBound(prefix))
@@ -237,7 +241,7 @@ public final class UsageStore {
                     try retireOwners.step()
                 }
                 for e in u.events { try upsert(e, ins) }
-                if !u.retirePrefixes.isEmpty {
+                if !retirePrefixes.isEmpty {
                     for e in u.events {
                         hold.reset()
                         hold.bind(1, e.key)
@@ -246,7 +250,7 @@ public final class UsageStore {
                     }
                 }
                 // Only now: a key this file wrote back has its row again, so the other copies keep their claim on it.
-                for prefix in u.retirePrefixes { try forgetOwners(prefix) }
+                for prefix in retirePrefixes { try forgetOwners(prefix) }
                 file.reset()
                 file.bind(1, u.record.path)
                 file.bind(2, Int64(bitPattern: u.record.inode))

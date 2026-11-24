@@ -79,7 +79,7 @@ public enum ModelNames {
 
     /// A name that came from a catalogue over the network, as the picture and `tokenbar-cli` may print it: without C0 and
     /// C1 control characters (an ESC would let a name move a terminal's cursor or set its title) and without the bidi
-    /// overrides and isolates U+202A-202E and U+2066-2069 (they would reorder the text around them). Everything else, a
+    /// overrides and isolates U+202A-202E and U+2066-2069, the left/right and Arabic letter marks U+200E, U+200F, U+061C (they would reorder the text around them) and the line and paragraph separators U+2028, U+2029. Everything else, a
     /// zero-width joiner and the Turkish letters included, stays.
     public static func displaySafe(_ text: String) -> String {
         guard text.unicodeScalars.contains(where: { isUnsafeForDisplay($0) }) else { return text }
@@ -90,7 +90,8 @@ public enum ModelNames {
 
     private static func isUnsafeForDisplay(_ u: Unicode.Scalar) -> Bool {
         let v = u.value
-        return v < 0x20 || (0x7F...0x9F).contains(v) || (0x202A...0x202E).contains(v) || (0x2066...0x2069).contains(v)
+        return v < 0x20 || (0x7F...0x9F).contains(v) || (0x200E...0x200F).contains(v) || v == 0x061C
+            || v == 0x2028 || v == 0x2029 || (0x202A...0x202E).contains(v) || (0x2066...0x2069).contains(v)
     }
 
     /// A readable name for a catalogue id that has no name of its own: `claude-mythos-5-2` is "Claude Mythos 5.2",

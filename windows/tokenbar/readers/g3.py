@@ -7,7 +7,7 @@ import sqlite3
 
 from .. import extdb
 from ..util import (clamp, epoch, is_number, load_json_file, mtime, read_json_file, num, seen_once, text, walk_files, whole, loads, longpath, safe_text)
-from .base import db_stamp, family
+from .base import db_stamp, family, real_event_prefixes
 from .core import read_devin as _read_devin_transcript, under
 
 
@@ -311,9 +311,9 @@ def devin_after(ctx, d, store, changed):
     would otherwise count twice (the Mac app retires `devin:<session>:db:` when it sees the transcript)."""
     for r in ctx.roots(d):
         for p in walk_files(os.path.join(r, "cli", "transcripts"), lambda n: n.endswith(".json")):
-            prefix = f"devin:{os.path.basename(p)[:-5]}:db:"
-            if store.has_prefix(prefix):
-                store.replace_prefix(prefix, [])
+            for prefix in real_event_prefixes(f"devin:{os.path.basename(p)[:-5]}:db:"):      # a session named `adj` is stored as `adj#gercek`
+                if store.has_prefix(prefix):
+                    store.replace_prefix(prefix, [])
 
 
 @family("devin-transcripts", devin_files, mode="whole", stamp=db_stamp, after=devin_after)

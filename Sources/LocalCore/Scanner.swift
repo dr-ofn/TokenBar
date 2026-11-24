@@ -143,13 +143,13 @@ public final class UsageScanner {
         var stat = SourceStat(name: "opencode")
         for descriptor in catalog.descriptors where descriptor.family == .opencodeSQLite {
             let databases = openCodeDatabases(descriptor, roots: catalog.rootPaths(of: descriptor))
-            result.issues += walkProblems.map { SourceIssue(source: "opencode", message: $0) }
+            result.issues += walkProblems.map { SourceIssue(source: Self.sourceName(descriptor), message: $0) }
             walkProblems = []
             for db in databases {
                 do {
                     try readOpenCode(db: db, prefix: descriptor.keyPrefixes[0], &stat)
                 } catch {
-                    result.issues.append(SourceIssue(source: "opencode", message: "\(db): \(error)"))
+                    result.issues.append(SourceIssue(source: Self.sourceName(descriptor), message: "\(db): \(error)"))
                 }
             }
         }
@@ -161,6 +161,13 @@ public final class UsageScanner {
         store.compactIfNeeded()
         try? store.setMeta("lastScan", String(Date().timeIntervalSince1970))
         return result
+    }
+
+    /// The name an issue of a source goes under, as on Windows: a second entry of a tool whose other entry has the same name
+    /// (Kilo Code's CLI, Qwen Code's chats) carries its key prefix, `Kilo Code (kilo)`.
+    static func sourceName(_ d: HarnessDescriptor) -> String {
+        let prefix = d.keyPrefixes.first ?? ""
+        return ["qwenc", "kilo", "kilocode"].contains(prefix) ? "\(d.name) (\(prefix))" : d.name
     }
 
     private func scan(_ source: FileSource, _ result: inout ScanResult) {
@@ -266,7 +273,9 @@ public final class UsageScanner {
         }()
         let rootURL = URL(fileURLWithPath: realRoot, isDirectory: true)
         var unreadable: [String] = []
-        guard let names = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [], errorHandler: { (url: URL, _: Error) -> Bool in
+        guard let names = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [], errorHandler: { (url: URL, error: Error) -> Bool in
+            // Only a refusal of permission is named: a folder that went while the walk ran (ENOENT, ENOTDIR) is no problem.
+            guard Self.isPermissionError(error) else { return true }
             unreadable.append(url.path)
             return true
         }) else { return [] }
@@ -307,6 +316,13 @@ public final class UsageScanner {
     static func fileInfo(_ path: String) -> Darwin.stat? {
         var st = Darwin.stat()
         return stat(path, &st) == 0 ? st : nil
+    }
+
+    /// A path that is a FIFO, socket or device, not a file the readers open (same rule as `LineReader`).
+    static func isSpecialPath(_ path: String) -> Bool {
+        guard let st = fileInfo(path) else { return false }
+        let mode = st.st_mode & S_IFMT
+        return [S_IFIFO, S_IFSOCK, S_IFCHR, S_IFBLK].contains(mode)
     }
 
     static func modified(_ st: Darwin.stat) -> Double {

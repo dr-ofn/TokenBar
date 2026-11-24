@@ -87,6 +87,7 @@ extension UsageScanner {
     /// is named as an issue and leaves the other databases alone.
     private func readDatabase(_ path: String, source: String, salt: String = "", _ stat: inout SourceStat,
                               _ result: inout ScanResult, load: (ExternalDB) throws -> [UsageEvent]) {
+        if Self.isSpecialPath(path) { return }
         guard let main = Self.fileInfo(path) else { return }
         // Each file on its own: a sum of two mtimes is the same for different pairs.
         let stamp = Self.stamp(main) + "|" + (Self.fileInfo(path + "-wal").map(Self.stamp) ?? "-") + (salt.isEmpty ? "" : "|" + salt)
@@ -233,8 +234,11 @@ extension UsageScanner {
                                         workingDirectory: ExternalDB.text(st, 10))
             if let event = DevinDBParser.event(row, file: file) { events.append(event) }
         }
-        for session in dropped.sorted() where store.hasEvents(prefix: "devin:\(session):db:") {
-            try store.replaceEvents(prefix: "devin:\(session):db:", with: [])
+        for session in dropped.sorted() {
+            // The rows are keyed as real events: a session called `adj` is `devin:adj#gercek:db:...` (`devin:adj:db:...` in a 9.0.5 index).
+            for prefix in UsageEvent.realPrefixes("devin:\(session):db:") where store.hasEvents(prefix: prefix) {
+                try store.replaceEvents(prefix: prefix, with: [])
+            }
         }
         return events
     }

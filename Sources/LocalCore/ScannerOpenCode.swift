@@ -16,6 +16,7 @@ extension UsageScanner {
     }
 
     func readOpenCode(db path: String, prefix: String, _ stat: inout SourceStat) throws {
+        if Self.isSpecialPath(path) { return }
         guard let mainInfo = Self.fileInfo(path) else { return }
 
         // Each file on its own: a sum of two mtimes is the same for different pairs.

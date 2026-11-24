@@ -9,14 +9,20 @@ extension UsageScanner {
         case .clineTasks, .rooTasks:
             let style: ClineTasksParser.Style = d.family == .clineTasks ? .cline : .roo
             return FileSource(name: d.name, appendOnly: false,
-                              files: { roots.flatMap { Self.taskFiles($0, cli: style == .cline) } },
+                              files: { roots.flatMap { Self.taskFiles($0, cli: style == .cline, problems: &self.walkProblems) } },
                               read: { try self.readClineTask($0, prefix: prefix, style: style) })
         case .copilotChat:
             return FileSource(name: d.name, appendOnly: false,
-                              files: { roots.flatMap { Self.copilotFiles($0) } }, read: readCopilotChat)
+                              files: { roots.flatMap { Self.copilotFiles($0, problems: &self.walkProblems) } }, read: readCopilotChat)
         case .continueTokens:
             return FileSource(name: d.name, appendOnly: true,
-                              files: { roots.map { $0 + "/dev_data/0.2.0/tokensGenerated.jsonl" } },
+                              files: { roots.map { (root: String) -> String in
+                                  let path = root + "/dev_data/0.2.0/tokensGenerated.jsonl"
+                                  // A folder on the way that cannot be searched hides the file: named, not taken for "nothing there".
+                                  var info = Darwin.stat()
+                                  if stat(path, &info) != 0, errno == EACCES || errno == EPERM { Self.nameUnreadable(root, in: &self.walkProblems) }
+                                  return path
+                              } },
                               read: { try self.readContinue($0, prefix: prefix) })
         case .zedThreads:
             // Zed's database is in WAL mode: a write may only touch `threads.db-wal`, so that file's
@@ -32,20 +38,42 @@ extension UsageScanner {
 
     // MARK: places
 
-    private static func entries(_ folder: String) -> [String] {
-        ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).sorted()
+    /// True when `error` is a refusal of permission (EACCES or EPERM, which macOS privacy protection answers with), however
+    /// Foundation wrapped it. A folder that is not there, or went while it was read, is not.
+    static func isPermissionError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileReadNoPermissionError { return true }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(EACCES) || ns.code == Int(EPERM) { return true }
+        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError { return isPermissionError(underlying) }
+        return false
+    }
+
+    /// `<folder>: cannot be read`, kept once in `problems`.
+    static func nameUnreadable(_ folder: String, in problems: inout [String]) {
+        let problem = folder + ": " + L10n.t("okunamıyor", "cannot be read")
+        if !problems.contains(problem) { problems.append(problem) }
+    }
+
+    /// The names in a folder. A folder that is not there is empty and no problem; one that cannot be read by permission is named.
+    private static func entries(_ folder: String, problems: inout [String]) -> [String] {
+        do {
+            return try FileManager.default.contentsOfDirectory(atPath: folder).sorted()
+        } catch {
+            if isPermissionError(error) { nameUnreadable(folder, in: &problems) }
+            return []
+        }
     }
 
     /// `<root>/tasks/<id>/ui_messages.json`, and for Cline's CLI `<root>/sessions/<id>/<id>.messages.json`.
-    static func taskFiles(_ root: String, cli: Bool) -> [String] {
+    static func taskFiles(_ root: String, cli: Bool, problems: inout [String]) -> [String] {
         var out: [String] = []
         let fm = FileManager.default
-        for id in entries(root + "/tasks") {
+        for id in entries(root + "/tasks", problems: &problems) {
             let path = "\(root)/tasks/\(id)/ui_messages.json"
             if fm.fileExists(atPath: path) { out.append(path) }
         }
         if cli {
-            for id in entries(root + "/sessions") {
+            for id in entries(root + "/sessions", problems: &problems) {
                 let path = "\(root)/sessions/\(id)/\(id).messages.json"
                 if fm.fileExists(atPath: path) { out.append(path) }
             }
@@ -55,20 +83,26 @@ extension UsageScanner {
 
     /// A root is a `workspaceStorage` folder (sessions in `<hash>/chatSessions/`) or an
     /// `emptyWindowChatSessions` folder (sessions in it).
-    static func copilotFiles(_ root: String) -> [String] {
+    static func copilotFiles(_ root: String, problems: inout [String]) -> [String] {
         let isSession: (String) -> Bool = { $0.hasSuffix(".jsonl") || $0.hasSuffix(".json") }
         if (root as NSString).lastPathComponent == "emptyWindowChatSessions" {
-            return entries(root).filter(isSession).map { root + "/" + $0 }
+            return entries(root, problems: &problems).filter(isSession).map { root + "/" + $0 }
         }
-        return entries(root).flatMap { hash in
-            entries("\(root)/\(hash)/chatSessions").filter(isSession).map { "\(root)/\(hash)/chatSessions/\($0)" }
+        return entries(root, problems: &problems).flatMap { hash in
+            entries("\(root)/\(hash)/chatSessions", problems: &problems).filter(isSession).map { "\(root)/\(hash)/chatSessions/\($0)" }
         }
     }
 
     /// The databases of a folder root: `opencode.db`, or for Kilo `kilo.db` and `kilo-<channel>.db`.
-    static func openCodeDatabaseNames(_ d: HarnessDescriptor, in root: String) -> [String] {
-        guard d.keyPrefixes.first == "kilo" else { return fileInfo(root + "/opencode.db") != nil ? ["opencode.db"] : [] }
-        return entries(root).filter { $0 == "kilo.db" || ($0.hasPrefix("kilo-") && $0.hasSuffix(".db")) }
+    static func openCodeDatabaseNames(_ d: HarnessDescriptor, in root: String, problems: inout [String]) -> [String] {
+        guard d.keyPrefixes.first == "kilo" else {
+            var st = Darwin.stat()
+            if stat(root + "/opencode.db", &st) == 0 { return ["opencode.db"] }
+            // A folder that cannot be searched hides its database: named, as a folder that cannot be listed is.
+            if errno == EACCES || errno == EPERM { nameUnreadable(root, in: &problems) }
+            return []
+        }
+        return entries(root, problems: &problems).filter { $0 == "kilo.db" || ($0.hasPrefix("kilo-") && $0.hasSuffix(".db")) }
     }
 
     // MARK: Cline, Roo Code, Kilo Code
@@ -150,7 +184,7 @@ extension UsageScanner {
 
     func readZed(_ file: FileToRead) throws -> FileRead {
         let path = file.path.hasSuffix("-wal") ? String(file.path.dropLast(4)) : file.path
-        guard Self.fileInfo(path) != nil else { return FileRead(events: [], end: file.limit) }
+        guard Self.fileInfo(path) != nil, !Self.isSpecialPath(path) else { return FileRead(events: [], end: file.limit) }
         // `threads.db` and its `-wal` are two files of one database: when both changed, the first read covers both.
         if readThisPass.contains(path) { return FileRead(events: [], end: pairEnd(path, file.limit)) }
         let before = pairStamp(path)

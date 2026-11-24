@@ -25,6 +25,8 @@ public final class AppModel {
     /// What the last "update prices" did, in a muted line; a failure goes to `notice` instead.
     public var priceInfo: String?
     public var priceWarning: String?
+    /// The cache warning now on show in `priceWarning`, to take it away again and no other.
+    private var cacheNote: String?
     public var isRefreshingPrices = false
 
     private let engine: Engine
@@ -84,10 +86,12 @@ public final class AppModel {
         // The app may run for weeks: the prices are asked for at launch and then every few hours (the feed's one-day wait
         // decides). After a failed pass the wait is an hour, twice as long with every failure in a row, six hours at most:
         // the same rule as on Windows (`PriceSchedule`).
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
             var failures = 0
             while !Task.isCancelled {
                 let report = await PriceBook.refreshInBackground()
+                // The note is kept by the price book: it is said once per process, and a pass nobody reads may have said it.
+                Task { @MainActor in self?.syncPriceWarning() }
                 failures = PriceSchedule.failures(after: report, was: failures)
                 try? await Task.sleep(for: .seconds(PriceSchedule.wait(failuresInARow: failures, retryIn: report?.retryIn)))
             }
@@ -139,6 +143,7 @@ public final class AppModel {
         guard !isRefreshingPrices else { return }
         isRefreshingPrices = true
         priceWarning = nil
+        cacheNote = nil
         say(L10n.t("Fiyatlar güncelleniyor…", "Updating prices…"))
         Task {
             let report = await PriceBook.refreshNow()
@@ -152,9 +157,34 @@ public final class AppModel {
                 priceInfo = nil
                 priceWarning = L10n.t("Fiyat güncellemesi başarısız: ", "Price update failed: ") + names
             } else {
-                say(L10n.t("Fiyatlar güncel, tarih ", "Prices are up to date, dated ") + PriceBook.date)
+                syncPriceWarning()
+                if PriceBook.cacheWarning == nil { say(L10n.t("Fiyatlar güncel, tarih ", "Prices are up to date, dated ") + PriceBook.date) }
             }
         }
+    }
+
+    /// The cache warning of the price book, as it is now: shown while it holds, taken away (only if it is still the one on
+    /// show) when a later pass wrote the cache again.
+    public func syncPriceWarning() {
+        if let note = PriceBook.cacheWarning {
+            showCacheWarning(note)
+            cacheNote = note
+        } else if let shown = cacheNote {
+            if priceWarning == shown { priceWarning = nil }
+            cacheNote = nil
+        }
+    }
+
+    /// One background pass, awaited, and the warning matched to what it found (`setOffline`, and the checks).
+    public func refreshPricesInBackground(_ refresh: @Sendable () async -> PriceRefreshReport? = { await PriceBook.refreshInBackground() }) async {
+        _ = await refresh()
+        syncPriceWarning()
+    }
+
+    /// The price cache folder cannot be written: a warning under the picture, until a real failure or a new update replaces it.
+    func showCacheWarning(_ note: String) {
+        priceInfo = nil
+        priceWarning = note
     }
 
     /// "Offline": the same as `TOKENBAR_OFFLINE=1`, remembered between runs.
@@ -163,11 +193,13 @@ public final class AppModel {
         prefs.save()
         PriceBook.offline = offline
         priceWarning = nil
+        cacheNote = nil
+        syncPriceWarning()
         if offline {
             say(L10n.t("Çevrimdışı: fiyatlar yalnız yerel önbellekten okunur.", "Offline: prices come from the local cache only."))
         } else {
             say(L10n.t("Çevrimiçi: fiyatlar günde bir kez yenilenir.", "Online: prices refresh once a day."))
-            PriceBook.startBackgroundRefresh()
+            Task { await self.refreshPricesInBackground() }
         }
     }
 

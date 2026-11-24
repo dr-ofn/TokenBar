@@ -356,6 +356,11 @@ def take_walk_errors() -> list[str]:
     return _take("walk")
 
 
+def note_unreadable(folder: str) -> None:
+    """Names a folder listers could not read (permission), same queue as `walk_files`."""
+    _note("walk", folder)
+
+
 def take_overlong() -> list[str]:
     """The files `iter_lines` left a line of over MAX_LINE_BYTES out of since the last call, each once."""
     return _take("long")
@@ -391,6 +396,8 @@ def walk_files(root: str, match, max_depth: int | None = None) -> list[str]:
     base_depth = root.rstrip("\\/").count(os.sep)
 
     def failed(e: OSError) -> None:
+        if isinstance(e, (FileNotFoundError, NotADirectoryError)):
+            return
         _note("walk", shown_form(e.filename if isinstance(e.filename, str) else root))
 
     for dirpath, dirnames, filenames in os.walk(root, onerror=failed, followlinks=False):

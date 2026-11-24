@@ -27,7 +27,7 @@ extension UsageScanner {
                 guard !gap.isZero else { continue }
                 events.append(UsageEvent(key: "cc:adj:\(session):\(model)", provider: ClaudeParser.provider(model),
                                          model: model, timestamp: state.lastRun, tokens: gap,
-                                         session: session, file: "cost-state"))
+                                         session: session, file: "cost-state", adjustment: true))
             }
         }
         try store.replaceEvents(prefix: "cc:adj:", with: events)
@@ -59,7 +59,7 @@ extension UsageScanner {
             guard !gap.isZero else { continue }
             events.append(UsageEvent(key: "qwen:adj:\(parts[0]):\(parts[1])", provider: seen[key]?.provider ?? "qwen",
                                      model: parts[1], timestamp: record.time, tokens: gap,
-                                     session: parts[0], file: existing[0]))
+                                     session: parts[0], file: existing[0], adjustment: true))
         }
         try store.replaceEvents(prefix: "qwen:adj:", with: events)
     }

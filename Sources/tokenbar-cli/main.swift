@@ -40,7 +40,7 @@ while let a = args.next() {
         print("usage: tokenbar-cli [--window 1h|5h|24h|7d|30d|all] [--db PATH] [--home DIR] [--rebuild] [--no-scan] [--json] [--offline] [--prices-now] | --index")
         exit(0)
     default:
-        FileHandle.standardError.write(Data((L10n.t("bilinmeyen argüman: \(a)", "unknown argument: \(a)") + "\n").utf8))
+        FileHandle.standardError.write(Data((L10n.t("bilinmeyen argüman: \(ModelNames.displaySafe(a))", "unknown argument: \(ModelNames.displaySafe(a))") + "\n").utf8))
         exit(1)
     }
 }
@@ -52,16 +52,11 @@ while let a = args.next() {
 /// The real path, as Python's os.path.realpath gives it: a home that is not there (yet) resolves through the nearest
 /// folder above it that is, so the index it gets does not change once it appears.
 func realHome(_ path: String) -> String {
-    var head = URL(fileURLWithPath: path).standardizedFileURL.path
-    var tail: [String] = []
-    while true {
-        if let p = realpath(head, nil) {
-            defer { free(p) }
-            return ([String(cString: p)] + tail.reversed()).joined(separator: "/").replacingOccurrences(of: "//", with: "/")
-        }
-        if head == "/" || head.isEmpty { return path }
-        tail.append((head as NSString).lastPathComponent)
-        head = (head as NSString).deletingLastPathComponent
+    do { return try RealPath.resolve(path) } catch {
+        // Python's os.path.realpath raises here: no guess from a folder above, which would scan (and index) another one.
+        let text = "tokenbar-cli: " + L10n.t("--home çözülemedi: ", "--home cannot be resolved: ") + ModelNames.displaySafe("\(error)") + "\n"
+        FileHandle.standardError.write(Data(text.utf8))
+        exit(2)
     }
 }
 if homeGiven {
@@ -71,14 +66,14 @@ if homeGiven {
 }
 
 guard let window = Period(rawValue: windowArg) else {
-    FileHandle.standardError.write(Data((L10n.t("geçersiz pencere: \(windowArg)", "invalid window: \(windowArg)") + "\n").utf8))
+    FileHandle.standardError.write(Data((L10n.t("geçersiz pencere: \(ModelNames.displaySafe(windowArg))", "invalid window: \(ModelNames.displaySafe(windowArg))") + "\n").utf8))
     exit(1)
 }
 
 // --rebuild drops every row; refuse it for the live index, where the loss is permanent.
 func canonical(_ path: String) -> String { URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path }
 if rebuild, canonical(dbPath) == canonical(UsageStore.defaultPath) {
-    FileHandle.standardError.write(Data(("tokenbar-cli: " + L10n.t("--rebuild reddedildi: veritabanı varsayılan konumda (\(dbPath))", "--rebuild refused: the database is at the default location (\(dbPath))") + "\n").utf8))
+    FileHandle.standardError.write(Data(("tokenbar-cli: " + L10n.t("--rebuild reddedildi: veritabanı varsayılan konumda (\(ModelNames.displaySafe(dbPath)))", "--rebuild refused: the database is at the default location (\(ModelNames.displaySafe(dbPath)))") + "\n").utf8))
     exit(2)
 }
 
@@ -107,6 +102,7 @@ do {
         let r = box.report
         FileHandle.standardError.write(Data((L10n.t("fiyatlar: ", "prices: ")
             + "\(r.updated.count) updated, \(r.notModified.count) not modified, \(r.fresh.count) fresh, \(r.failed.count) failed, \(r.skipped.count) skipped\n").utf8))
+        for note in r.warnings { FileHandle.standardError.write(Data((ModelNames.displaySafe(note) + "\n").utf8)) }
     }
     // Names and colours of the tools in this home's custom-sources.json, scan or not.
     HarnessCatalog.load(home: home).register()
@@ -116,12 +112,13 @@ do {
         let result = UsageScanner(store: store, home: home).scan()
         detected = result.detected
         for issue in result.issues {
-            FileHandle.standardError.write(Data((L10n.t("kaynak hatası", "source error") + " · \(issue.source): \(IssueText.localized(issue.message))\n").utf8))
+            let text = L10n.t("kaynak hatası", "source error") + " · \(ModelNames.displaySafe(issue.source)): \(ModelNames.displaySafe(IssueText.localized(issue.message)))\n"
+            FileHandle.standardError.write(Data(text.utf8))
         }
         if !jsonOut {
-            let parts = result.sources.filter { $0.filesRead > 0 }.map { "\($0.name) \($0.filesRead) " + L10n.t("dosya", "files") + ", \($0.events) " + L10n.t("kayıt", "records") }
+            let parts = result.sources.filter { $0.filesRead > 0 }.map { "\(ModelNames.displaySafe($0.name)) \($0.filesRead) " + L10n.t("dosya", "files") + ", \($0.events) " + L10n.t("kayıt", "records") }
             print(L10n.t("tarama: \(result.bytesRead) bayt · ", "scan: \(result.bytesRead) bytes · ") + parts.joined(separator: " · "))
-            print(L10n.t("algılanan araçlar: ", "detected tools: ") + (detected.isEmpty ? "-" : detected.map(\.name).joined(separator: ", ")))
+            print(L10n.t("algılanan araçlar: ", "detected tools: ") + (detected.isEmpty ? "-" : detected.map { (h: HarnessID) -> String in ModelNames.displaySafe(h.name) }.joined(separator: ", ")))
         }
     }
 
@@ -133,14 +130,14 @@ do {
     } else {
         print("\(window.label): \(UsageText.tokens(report.counts.total))\(UsageText.tokenWord) · \(UsageText.money(report.cost))\(UsageText.moneyWord) · \(UsageText.totalLine(report))")
         for h in report.harnesses {
-            print("\(h.harness.name): \(UsageText.tokens(h.tokens)) · \(UsageText.money(h.cost)) · \(UsageText.calls(h.calls))")
+            print("\(ModelNames.displaySafe(h.harness.name)): \(UsageText.tokens(h.tokens)) · \(UsageText.money(h.cost)) · \(UsageText.calls(h.calls))")
             for m in h.models {
-                print("  \(m.info.name) [\(m.info.provider)]  \(UsageText.tokens(m.tokens)) · \(UsageText.cost(m.cost, m.info.price)) · \(UsageText.calls(m.calls))")
+                print("  \(ModelNames.displaySafe(m.info.name)) [\(ModelNames.displaySafe(m.info.provider))]  \(UsageText.tokens(m.tokens)) · \(UsageText.cost(m.cost, m.info.price)) · \(UsageText.calls(m.calls))")
             }
         }
         if report.harnesses.isEmpty { print(L10n.t("  (bu aralıkta çağrı yok)", "  (no calls in this window)")) }
     }
 } catch {
-    FileHandle.standardError.write(Data("tokenbar-cli: \(error)\n".utf8))
+    FileHandle.standardError.write(Data(("tokenbar-cli: " + ModelNames.displaySafe("\(error)") + "\n").utf8))
     exit(1)
 }

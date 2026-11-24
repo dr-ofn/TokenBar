@@ -149,7 +149,7 @@ extension UsageScanner {
     /// too and its change wakes the same read. The pair is read once per pass, from a copy that holds the `-wal`.
     func readAntigravity(_ file: FileToRead) throws -> FileRead {
         let path = file.path.hasSuffix("-wal") ? String(file.path.dropLast(4)) : file.path
-        guard Self.fileInfo(path) != nil else { return FileRead(events: [], end: file.limit) }
+        guard Self.fileInfo(path) != nil, !Self.isSpecialPath(path) else { return FileRead(events: [], end: file.limit) }
         if readThisPass.contains(path) { return FileRead(events: [], end: pairEnd(path, file.limit)) }
         let conversation = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
         let before = pairStamp(path)

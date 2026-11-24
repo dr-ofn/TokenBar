@@ -330,6 +330,8 @@ class MainWindow:
             self.set_status(t("Çevrimdışı", "Offline"))
         elif report.failed:
             self.set_status(t("Bazı fiyat listeleri alınamadı: ", "Some price lists could not be fetched: ") + ", ".join(report.failed))
+        elif getattr(report, "notes", None) or self.model.book.cache_problem():
+            self.set_status(" · ".join(getattr(report, "notes", None) or [self.model.book.cache_problem()]))
         else:
             self.set_status(t("Fiyatlar güncel", "Prices are up to date") + (f" · {self.model.book.date}" if self.model.book.date else ""))
         self.refresh()

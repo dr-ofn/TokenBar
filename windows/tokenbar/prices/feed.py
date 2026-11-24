@@ -99,6 +99,7 @@ class RefreshReport:
     failed: dict = field(default_factory=dict)
     skipped: list = field(default_factory=list)
     retry_in: float | None = None       # seconds until the earliest source that waits out a failure (kept on disk) may be asked
+    notes: list = field(default_factory=list)   # a problem that is not a failed download, said once per feed (an unwritable cache)
 
     @property
     def changed(self) -> bool:
@@ -117,12 +118,12 @@ class CacheFile:
 _gate = threading.Lock()
 
 
-def _write_json(path: str, obj) -> None:
+def _write_json(path: str, obj) -> bool:
     """Atomic write; a NaN or Infinity anywhere means nothing is written (JSON cannot hold it)."""
     try:
         data = json.dumps(obj, sort_keys=True, allow_nan=False)
     except (ValueError, TypeError):
-        return
+        return False
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tb-", suffix=".tmp")
@@ -136,8 +137,9 @@ def _write_json(path: str, obj) -> None:
             except OSError:
                 pass
             raise
+        return True
     except OSError:
-        pass
+        return False
 
 
 class PriceFeed:
@@ -152,6 +154,27 @@ class PriceFeed:
         self.should_stop = should_stop
         self.snapshot_exact: dict = {}
         self.snapshot_path = snapshot_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "prices-snapshot.json")
+        self._memory: dict[str, CacheFile] = {}
+        self._cache_warned = False
+        self._failed_memory: dict | None = None     # the failures, when prices-state.json cannot be written
+        self._unwritable: set[str] = set()          # what could not be written the last time it was tried: "cache:<source>", "state"
+
+    @property
+    def cache_problem(self) -> str | None:
+        """Why the price cache is not kept on disk, for as long as that is so (a window lists it like a source problem);
+        `RefreshReport.notes` says it once, this stays until a write works again."""
+        if not self._unwritable:
+            return None
+        from ..i18n import t
+        return t(f"fiyat önbelleği yazılamıyor: {self.cache_dir}", f"price cache cannot be written: {self.cache_dir}")
+
+    def _note_unwritable_cache(self, report: "RefreshReport") -> None:
+        """The cache folder cannot be written: the catalogues stay in memory (see `_store_cache`); said once per feed."""
+        if self._cache_warned:
+            return
+        self._cache_warned = True
+        from ..i18n import t
+        report.notes.append(t(f"fiyat önbelleği yazılamıyor: {self.cache_dir}", f"price cache cannot be written: {self.cache_dir}"))
 
     # ---- disk
     def _cache_path(self, source):
@@ -162,6 +185,9 @@ class PriceFeed:
 
     def read_cache(self, source) -> CacheFile | None:
         """A cache file that is not ours, not this schema or has no priced row is as good as none."""
+        mem = self._memory.get(source)
+        if mem is not None:
+            return mem
         try:
             with open(self._cache_path(source), encoding="utf-8") as f:
                 root = json.load(f)
@@ -181,21 +207,44 @@ class PriceFeed:
         fetched = float(fetched) if 0 <= fetched < 1e11 else 0.0
         return CacheFile(etag if isinstance(etag, str) else None, fetched, rows, exact, schema)
 
-    def write_cache(self, source, rows, etag, fetched) -> None:
+    def write_cache(self, source, rows, etag, fetched) -> bool:
         """What a lookup can return: the row the index picks for each key and the rows an exact id reaches with a price of
         their own (`engine.split`), so the cache stays small and prices every name as the whole catalogue did."""
         winners, exact = split(source, rows)
-        self._store_cache(source, winners, exact, etag, fetched)
+        return self._store_cache(source, winners, exact, etag, fetched)
 
-    def _store_cache(self, source, winners, exact, etag, fetched) -> None:
-        root = {"schema": SCHEMA, "source": source, "url": URLS[source], "fetched": fetched, "rows": winners}
-        if exact:
-            root["exact"] = exact
-        if etag:
-            root["etag"] = etag
-        _write_json(self._cache_path(source), root)
+    def _store_cache(self, source, winners, exact, etag, fetched) -> bool:
+        """True when the file is written. When it cannot be, the catalogue and its time stay in this process, so the next
+        pass finds it fresh instead of asking the network again (at most one request per catalogue a day, written or not)."""
+        return self._write_cache_file(CacheFile(etag if isinstance(etag, str) and etag else None, fetched, winners, exact, SCHEMA), source)
+
+    def _write_cache_file(self, cache: "CacheFile", source) -> bool:
+        root = {"schema": SCHEMA, "source": source, "url": URLS[source], "fetched": cache.fetched, "rows": cache.rows}
+        if cache.exact:
+            root["exact"] = cache.exact
+        if cache.etag:
+            root["etag"] = cache.etag
+        if _write_json(self._cache_path(source), root):
+            self._memory.pop(source, None)
+            self._unwritable.discard("cache:" + source)
+            return True
+        self._memory[source] = cache
+        self._unwritable.add("cache:" + source)             # tracked per catalogue: one that writes must not hide another that does not
+        return False
+
+    def _retry_held_writes(self) -> None:
+        """What a pass could not write down (catalogues kept in memory, the failure times) is written again at the start
+        of every pass, so a folder that works again gets its files without a new download (the Mac's `held` writes)."""
+        for source, cache in list(self._memory.items()):
+            self._write_cache_file(cache, source)
+        if self._failed_memory is not None:
+            if _write_json(self._state_path(), {"failed": self._failed_memory}):
+                self._failed_memory = None
+                self._unwritable.discard("state")
 
     def _failures(self) -> dict:
+        if self._failed_memory is not None:
+            return dict(self._failed_memory)
         try:
             with open(self._state_path(), encoding="utf-8") as f:
                 failed = json.load(f).get("failed")
@@ -245,6 +294,7 @@ class PriceFeed:
 
     def _pass(self, force: bool = False) -> RefreshReport:
         report = RefreshReport()
+        self._retry_held_writes()
         if self.offline or self.should_stop():
             report.skipped = list(SOURCES)
             return report
@@ -272,7 +322,8 @@ class PriceFeed:
                 if answer[0] == "notmodified":
                     if cache is None or cache.schema < SCHEMA:
                         raise FetchError("HTTP 304 without a cache")
-                    self._store_cache(source, cache.rows, cache.exact, cache.etag, now)
+                    if not self._store_cache(source, cache.rows, cache.exact, cache.etag, now):
+                        self._note_unwritable_cache(report)
                     report.not_modified.append(source)
                 else:
                     try:
@@ -283,12 +334,19 @@ class PriceFeed:
                         report.failed[source] = f"answer is not the {CATALOGUE_NAMES[source]} catalogue"
                         failed[source] = now
                         continue
-                    self.write_cache(source, rows, answer[2], now)
+                    if not self.write_cache(source, rows, answer[2], now):
+                        self._note_unwritable_cache(report)
                     report.updated.append(source)
                 failed.pop(source, None)
             except FetchError as e:
                 report.failed[source] = str(e)
                 failed[source] = now
         if failed != start_failed:
-            _write_json(self._state_path(), {"failed": failed})
+            if _write_json(self._state_path(), {"failed": failed}):
+                self._failed_memory = None
+                self._unwritable.discard("state")
+            else:
+                self._failed_memory = dict(failed)      # the wait after a failure holds even when it cannot be written down
+                self._unwritable.add("state")
+                self._note_unwritable_cache(report)
         return report

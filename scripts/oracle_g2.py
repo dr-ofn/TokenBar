@@ -354,7 +354,7 @@ def zed(add, HOME, epoch):
         total = zed_usage(thread.get("cumulative_token_usage"))
         gap = [max(0, a - b) for a, b in zip(total, sums)]
         if sum(gap):
-            add(f"zed:adj:{tid}", when, provider, name, gap[0], gap[1], gap[2], gap[3], 0)
+            add(f"zed:adj:{tid}", when, provider, name, gap[0], gap[1], gap[2], gap[3], 0, adjustment=True)
 
 
 def collect(add, opencode, root, HOME, epoch, num):

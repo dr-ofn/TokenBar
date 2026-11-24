@@ -33,7 +33,12 @@ public enum LineReader {
         // Looked at first: a socket cannot even be opened (EOPNOTSUPP), and would be named as a missing file.
         if stat(path, &before) == 0, special(before.st_mode) { return Result(endOffset: offset, bytesRead: 0) }
         let fd = open(path, O_RDONLY | O_NONBLOCK)
-        guard fd >= 0 else { throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path]) }
+        if fd < 0 {
+            if errno == EACCES || errno == EPERM {
+                throw CocoaError(.fileReadNoPermission, userInfo: [NSFilePathErrorKey: path])
+            }
+            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+        }
         defer { close(fd) }
         var info = Darwin.stat()
         if fstat(fd, &info) == 0, special(info.st_mode) {

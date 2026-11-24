@@ -123,9 +123,19 @@ def call_cost(model, counts, cw1h, tiered=True):
             + cw1h * rate["cacheWrite1h"] + out * rate["output"]) / 1_000_000
 
 
-def add(key, ts, provider, model, inp, cr, cw, out, rz, cw1h=0):
+def real_key(key):
+    """The key a REAL call is stored under. Adjustment rows are `<prefix>:adj:...`; a call whose own id (a Claude message.id,
+    a Cline task id ...) is exactly `adj` is written `<prefix>:adj#gercek...` so it is not taken for one (the app does the same)."""
+    head, sep, rest = key.partition(":")
+    second, sep2, tail = rest.partition(":")
+    return f"{head}:adj#gercek{sep2}{tail}" if sep and second == "adj" else key
+
+
+def add(key, ts, provider, model, inp, cr, cw, out, rz, cw1h=0, adjustment=False):
     if inp + cr + cw + out == 0:
         return
+    if not adjustment:
+        key = real_key(key)
     counts = (inp, cr, cw, out, rz, cw1h)
     old = best.get(key)
     if old is None or sum(counts[:4]) > sum(old[2][:4]):
@@ -180,7 +190,7 @@ def claude():
 
             def emit(k, md, usage):
                 details = usage.get("output_tokens_details") or {}
-                claude_session[k] = o.get("sessionId") or ""
+                claude_session[real_key(k)] = o.get("sessionId") or ""
                 add(k, ts, "anthropic" if md.startswith("claude") else "custom", md,
                     num(usage, "input_tokens"), num(usage, "cache_read_input_tokens"),
                     num(usage, "cache_creation_input_tokens"), num(usage, "output_tokens"),
@@ -228,7 +238,7 @@ def claude_gaps(records):
         seen = sums.get((session, model), [0, 0, 0, 0])
         gap = [max(0, a - b) for a, b in zip(t, seen)]
         add(f"cc:adj:{session}:{model}", int(last[session]), "anthropic" if model.startswith("claude") else "custom",
-            model, gap[0], gap[1], gap[2], gap[3], 0)
+            model, gap[0], gap[1], gap[2], gap[3], 0, adjustment=True)
 
 
 def codex():
@@ -432,7 +442,7 @@ def qwen():
         inp = max(0, num(m, "inputTokens") - s[0])
         cached = max(0, num(m, "cachedTokens") - s[1])
         add(f"qwen:adj:{session}:{model}", epoch(ts), s[4], model, max(0, inp - cached), min(cached, inp), 0,
-            max(0, num(m, "outputTokens") - s[2]), max(0, num(m, "thoughtsTokens") - s[3]))
+            max(0, num(m, "outputTokens") - s[2]), max(0, num(m, "thoughtsTokens") - s[3]), adjustment=True)
 
 
 def kimi():

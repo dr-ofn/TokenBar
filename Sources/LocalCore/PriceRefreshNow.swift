@@ -18,6 +18,7 @@ extension PriceBook {
         }
         let report = await feed.refresh()
         if report.changed { reload(feed: feed) }
+        noteWarnings(report)
         return report
     }
 }

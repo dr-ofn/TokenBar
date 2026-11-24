@@ -74,11 +74,21 @@ extension UsageScanner {
         var seen = Set<String>()
         func add(_ path: String) { if seen.insert(path).inserted { out.append(path) } }
         for root in roots {
-            guard Self.fileInfo(root) != nil else { continue }
-            if !Self.isFolder(root) { add(root); continue }
-            for name in Self.openCodeDatabaseNames(d, in: root) { add(root + "/" + name) }
+            var info = Darwin.stat()
+            guard stat(root, &info) == 0 else {
+                // EPERM as well: macOS privacy protection (TCC) refuses with it where a plain permission says EACCES.
+                if errno == EACCES || errno == EPERM { Self.nameUnreadable(root, in: &walkProblems) }
+                continue
+            }
+            let kind = info.st_mode & S_IFMT
+            // A root that is a file is the database; a pipe, socket or device is never opened.
+            if kind == S_IFREG { add(root); continue }
+            guard kind == S_IFDIR else { continue }
+            for name in Self.openCodeDatabaseNames(d, in: root, problems: &walkProblems) where !Self.isSpecialPath(root + "/" + name) {
+                add(root + "/" + name)
+            }
             guard d.recursive else { continue }
-            for db in walk(root, { $0.hasPrefix("opencode") && $0.hasSuffix(".db") }) where d.custom || db.contains("/data/opencode/") { add(db) }
+            for db in walk(root, { $0.hasPrefix("opencode") && $0.hasSuffix(".db") }) where !Self.isSpecialPath(db) && (d.custom || db.contains("/data/opencode/")) { add(db) }
         }
         return out
     }

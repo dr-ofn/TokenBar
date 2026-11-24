@@ -8,6 +8,25 @@ from typing import Callable
 from ..util import FIELD_LIMIT, clamp, longpath
 
 
+def real_event_key(key: str) -> str:
+    """The key a REAL call is stored under. Adjustment rows are `<prefix>:adj:...`; a call whose own id (a Claude
+    message.id, a Cline task id ...) is exactly `adj` would read as one, so that second part is written `adj#gercek`.
+    The adjustment writers (`claude_adjust`, `qwen_adjust`, Zed's gap row) never pass through here."""
+    head, sep, rest = key.partition(":")
+    second, sep2, tail = rest.partition(":")
+    if sep and second == "adj":
+        return f"{head}:adj#gercek{sep2}{tail}"
+    return key
+
+
+def real_event_prefixes(prefix: str) -> list[str]:
+    """Every prefix that can hold the REAL rows a key prefix built from a raw id stands for: the prefix itself (rows an
+    older index wrote, and everything that is no `adj`) and its `adj#gercek` form. For prefixes made of an id (`cline:<task>:`,
+    `devin:<session>:db:`), never for the adjustment prefixes (`cc:adj:`, `qwen:adj:`, `zed:adj:`), which are fixed names."""
+    real = real_event_key(prefix)
+    return [prefix] if real == prefix else [prefix, real]
+
+
 @dataclass
 class Event:
     key: str
@@ -40,10 +59,12 @@ class Sink:
         self.retry = False        # keep what was read, but do not mark the file read: it is read again next pass
 
     def add(self, key: str, ts: float, provider: str, model: str, inp: int, cr: int, cw: int, out: int, rz: int = 0,
-            cw1h: int = 0, session: str = "") -> None:
+            cw1h: int = 0, session: str = "", adjustment: bool = False) -> None:
         inp, cr, cw, out = clamp(inp), clamp(cr), clamp(cw), clamp(out)
         if inp + cr + cw + out == 0:
             return
+        if not adjustment:
+            key = real_event_key(key)
         self.events.append(Event(key, ts if ts == ts else 0.0, provider or "", model or "unknown", inp, cr, cw, out,
                                  clamp(rz), min(clamp(cw1h), cw), session))
 
@@ -53,7 +74,7 @@ class Sink:
 
     def retire_prefix(self, prefix: str) -> None:
         """Every row under a key prefix: the file now says the whole task differently (a checkpoint restore)."""
-        self.retire_prefixes.append(prefix)
+        self.retire_prefixes += real_event_prefixes(prefix)       # `cline:adj:` also stands for the rows of a task named `adj`
 
     def issue(self, message: str) -> None:
         self.issues.append(message)

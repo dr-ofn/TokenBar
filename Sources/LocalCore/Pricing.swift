@@ -263,7 +263,23 @@ public enum PriceBook {
         guard !isOffline, !isPinned else { return nil }
         let report = await feed.refresh()
         if report.changed { reload(feed: feed) }
+        noteWarnings(report)
         return report
+    }
+
+    /// A problem the price feed met that is not a failed download (the cache folder cannot be written). The feed says it
+    /// once per process, in the report of one pass, which may be one nobody reads (`startBackgroundRefresh`): so it is kept
+    /// here, where the app can ask for it at any time.
+    public static var cacheWarning: String? { lock.withLock { cacheWarningValue } }
+
+    /// For the checks: the note taken back, as at a fresh start.
+    public static func clearCacheWarning() { lock.withLock { cacheWarningValue = nil } }
+
+    /// What a pass found out about the cache folder: the note while it cannot be written, none once a write went through
+    /// (a pass that did not look, offline or stopped, changes nothing).
+    public static func noteWarnings(_ report: PriceRefreshReport) {
+        guard report.cacheChecked else { return }
+        lock.withLock { cacheWarningValue = report.cacheProblem }
     }
 
     // MARK: State
@@ -275,6 +291,7 @@ public enum PriceBook {
     /// The price cache folder of the home folder in use; nil is the process's own.
     nonisolated(unsafe) private static var cacheDirectoryValue: URL?
     nonisolated(unsafe) private static var offlineValue = false
+    nonisolated(unsafe) private static var cacheWarningValue: String?
     private static let lock = NSLock()
 
     private static func state() -> PriceResolver {

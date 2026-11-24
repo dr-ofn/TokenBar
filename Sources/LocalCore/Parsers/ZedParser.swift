@@ -43,7 +43,7 @@ enum ZedParser {
                               cacheWrite: max(0, all.cacheWrite - sum.cacheWrite), output: max(0, all.output - sum.output))
         if !gap.isZero {
             out.append(UsageEvent(key: "zed:adj:\(threadID)", provider: provider, model: name, timestamp: time,
-                                  tokens: gap, session: threadID, file: file))
+                                  tokens: gap, session: threadID, file: file, adjustment: true))
         }
         return out
     }

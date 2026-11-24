@@ -379,7 +379,8 @@ def modelsdev_rows(raw):
                               num(over["output"]) if over.get("output") is not None else base[1],
                               num(over["cache_read"]) if over.get("cache_read") is not None else base[2],
                               num(over["cache_write"]) if over.get("cache_write") is not None else base[3], 0.0])
-            row = base + [tiers, str(m.get("name") or "")]
+            name = m.get("name") if isinstance(m.get("name"), str) else ""
+            row = base + [tiers, name]
             if not corrupt and row_sane(row):
                 out[f"{provider}/{model_id}"] = row
     return out or None
@@ -458,7 +459,8 @@ SOURCES = ("openrouter", "litellm", "modelsdev")
 
 def _unsafe_for_display(ch: str) -> bool:
     v = ord(ch)
-    return v < 0x20 or 0x7F <= v <= 0x9F or 0x202A <= v <= 0x202E or 0x2066 <= v <= 0x2069
+    return (v < 0x20 or 0x7F <= v <= 0x9F or 0x202A <= v <= 0x202E or 0x2066 <= v <= 0x2069
+            or v in (0x200E, 0x200F, 0x061C, 0x2028, 0x2029))
 
 
 def display_safe(text: str) -> str:

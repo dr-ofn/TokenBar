@@ -67,7 +67,7 @@ def source(name, path):
 # 1. The override layer
 
 def per_million(value):
-    return round(float(value or 0) * 1_000_000, 6)
+    return pricelib.per_million(value)      # true/false, NaN, Infinity and 1e999 are 0 here as in the app
 
 
 def rates(p, fallback=None):
@@ -205,7 +205,15 @@ def build_snapshot(litellm_path, modelsdev_path):
     # of the keys, which they must not change.
     if litellm_exact:
         snapshot["exact"] = {"litellm": litellm_exact}
-    text = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    try:
+        # JSON has no Infinity or NaN: Swift's JSONSerialization would reject the whole embedded snapshot over one.
+        text = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False)
+    except ValueError as e:
+        sys.exit(f"snapshot holds a number JSON cannot write: {e}")
+    for source_name in ("litellm", "modelsdev"):
+        bad = [k for k, row in snapshot[source_name].items() if not pricelib.row_ok(row)]
+        if bad:
+            sys.exit(f"snapshot: {len(bad)} {source_name} row(s) fail the app's sanity rule (a rate over {pricelib.MAX_RATE:g}, a bad tier): {bad[:3]}")
     if '"""' in text or "\\#" in text:
         sys.exit("snapshot text would break the Swift raw string literal")
     directory = f"{ROOT}/Sources/LocalCore/Resources"

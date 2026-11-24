@@ -12,6 +12,12 @@ fixture="$PWD/.build/release/tokenbar-fixture"
 
 say_fail() { echo "BAŞARISIZ: $1"; fail=1; }
 
+echo "== bu makineye özgü yol yok =="
+# A test or source that names this machine's home or a session scratch folder passes here and fails everywhere else.
+own_paths=$(git grep -nIE '/Users/[A-Za-z0-9_.-]+/|claude-[0-9]{3}' -- Sources scripts windows/tokenbar windows/tests .github \
+  ':!scripts/check.sh' 2>/dev/null || true)
+if [ -n "$own_paths" ]; then echo "$own_paths" | head -5; say_fail "makineye özgü yol"; fi
+
 echo "== derleme =="
 swift build -c release 2>&1 | tail -1 | grep -q 'Build complete' || say_fail derleme
 

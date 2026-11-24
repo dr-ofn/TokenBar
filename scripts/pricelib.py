@@ -7,6 +7,7 @@ Prices are USD per 1M tokens. A catalogue row is
 where 0 means "the catalogue does not say" (a cache price then falls back to the input price).
 """
 import json
+import math
 import os
 import re
 from collections import defaultdict
@@ -132,28 +133,39 @@ def is_local_provider(provider, extra=()):
 # ---------------------------------------------------------------------------------------------
 # Catalogue rows from the three raw sources
 
-def per_million(value):
-    return round(float(value or 0) * 1_000_000, 6)
+MAX_RATE = 1_000_000.0  # PriceLimits.maxRate: USD per 1M tokens, far above any model
+MAX_TIER_TOKENS = 1_000_000_000_000  # a tier threshold above this is a corrupt row
 
 
 def num(value):
+    """A finite float from a number or a numeric string; JSON true/false, anything else and anything that is not finite
+    (NaN, Infinity, 1e999) is 0 (the app's `num`): a bool is never a price, so it can never become $1 per token."""
+    if isinstance(value, bool):
+        return 0.0
     try:
         v = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0.0
-    return v if v == v and v != float("inf") else 0.0
+    return v if math.isfinite(v) else 0.0
 
 
-MAX_RATE = 1_000_000.0  # PriceLimits.maxRate: USD per 1M tokens, far above any model
+def per_million(value):
+    return round(num(value) * 1_000_000, 6)
 
 
 def is_rate(v):
-    return v == v and 0 <= v <= MAX_RATE
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= MAX_RATE
+
+
+def alias_number(value):
+    """`num`, except that a JSON true is 1 and false 0 in a hand-written alias, as on the Mac (an NSNumber): the one place
+    a bool counts as a number, an accepted edge. A catalogue row never takes it."""
+    return float(value) if isinstance(value, bool) else num(value)
 
 
 def alias_rates_ok(value):
     """A hand-written price meets the bound a catalogue row does (Swift UserAliases.target): else the entry is dropped."""
-    vals = [num(value.get(k)) for k in ("input", "output", "cacheRead", "cacheWrite")]
+    vals = [alias_number(value.get(k)) for k in ("input", "output", "cacheRead", "cacheWrite")]
     return vals[0] > 0 and vals[1] > 0 and all(is_rate(v) for v in vals)
 
 
@@ -162,34 +174,60 @@ def given(d, key, fallback):
     return num(d[key]) if d.get(key) is not None else fallback
 
 
+def tier_sane(t):
+    return (isinstance(t, (list, tuple)) and len(t) >= 6 and 1 <= t[0] <= MAX_TIER_TOKENS + 1 and t[1] > 0 and t[2] > 0
+            and all(is_rate(x) for x in t[1:6]))
+
+
 def row_ok(row):
-    return row[0] > 0 and row[1] > 0
+    """A priced row (the app's `row_sane`): both prices positive, every rate finite and at most MAX_RATE, every tier sane."""
+    try:
+        return (row[0] > 0 and row[1] > 0 and all(is_rate(x) for x in row[:5])
+                and all(tier_sane(t) for t in (row[5] if len(row) > 5 else [])))
+    except (TypeError, IndexError):
+        return False
+
+
+def _start(v):
+    """A tier threshold: a whole positive number of tokens that fits, else None (the row is corrupt)."""
+    n = num(v)
+    return int(n) if 0 < n <= MAX_TIER_TOKENS else None
 
 
 def openrouter_rows(raw):
     """id -> row. Routers priced -1 and anything at zero are left out."""
     out = {}
-    for m in raw.get("data", []):
-        p = m.get("pricing") or {}
-        try:
-            inp, outp = per_million(p.get("prompt")), per_million(p.get("completion"))
-        except (TypeError, ValueError):
+    data = raw.get("data") if isinstance(raw, dict) else None
+    for m in data if isinstance(data, list) else []:
+        if not isinstance(m, dict) or not isinstance(m.get("id"), str) or not isinstance(m.get("pricing"), dict):
             continue
-        base = [inp, outp, max(per_million(p.get("input_cache_read")), 0), max(per_million(p.get("input_cache_write")), 0),
-                max(per_million(p.get("input_cache_write_1h")), 0)]
-        tiers = []
-        for t in sorted((t for t in p.get("overrides") or [] if "min_prompt_tokens" in t), key=lambda t: t["min_prompt_tokens"]):
+        p = m["pricing"]
+        base = [per_million(p.get("prompt")), per_million(p.get("completion")), max(per_million(p.get("input_cache_read")), 0),
+                max(per_million(p.get("input_cache_write")), 0), max(per_million(p.get("input_cache_write_1h")), 0)]
+        overrides = [t for t in (p.get("overrides") if isinstance(p.get("overrides"), list) else [])
+                     if isinstance(t, dict) and "min_prompt_tokens" in t]
+        overrides.sort(key=lambda t: num(t["min_prompt_tokens"]))
+        tiers, corrupt = [], False
+        for t in overrides:
+            start = _start(t["min_prompt_tokens"])
+            if start is None:
+                corrupt = True
+                break
             # a cache price the tier does not state is the base row's (as a LiteLLM tier carries it), not 0: 0 would make
             # it the tier's input price
             # (a JSON null is "not given" like a missing key)
-            tiers.append([int(t["min_prompt_tokens"]),
+            tiers.append([start,
                           per_million(t["prompt"]) if t.get("prompt") is not None else base[0],
                           per_million(t["completion"]) if t.get("completion") is not None else base[1],
                           per_million(t["input_cache_read"]) if t.get("input_cache_read") is not None else base[2],
                           per_million(t["input_cache_write"]) if t.get("input_cache_write") is not None else base[3],
                           per_million(t["input_cache_write_1h"]) if t.get("input_cache_write_1h") is not None else base[4]])
-        row = base + [tiers, re.sub(r"^[^:]{1,40}:\s*", "", m.get("name") or "")]
-        if row_ok(row) and m.get("id"):
+        name = m.get("name") if isinstance(m.get("name"), str) else ""
+        colon = name.find(":")
+        if 1 <= colon <= 40:
+            name = name[colon + 1:].strip()
+        row = base + [tiers, name]
+        if not corrupt and row_ok(row):
             out[m["id"]] = row
     return out
 
@@ -202,21 +240,28 @@ LITELLM_FIELDS = ("input_cost_per_token", "output_cost_per_token", "cache_read_i
 
 def litellm_rows(raw):
     out = {}
+    if not isinstance(raw, dict):
+        return out
     for key, v in raw.items():
         if key == "sample_spec" or not isinstance(v, dict) or v.get("mode") not in ("chat", "completion", "responses", None):
             continue
         base = [per_million(v.get(f)) for f in LITELLM_FIELDS]
         thresholds = defaultdict(dict)
+        corrupt = False
         for field, value in v.items():
             m = LITELLM_TIER.match(field)
-            if m and isinstance(value, (int, float)):
-                thresholds[int(m.group(2)) * 1000][m.group(1)] = per_million(value)
+            if m and isinstance(value, (int, float)) and not isinstance(value, bool):
+                k = int(m.group(2))
+                if not (1 <= k <= MAX_TIER_TOKENS // 1000):
+                    corrupt = True
+                    continue
+                thresholds[k * 1000][m.group(1)] = per_million(value)
         tiers, carried = [], list(base)
         for threshold in sorted(thresholds):
             carried = [thresholds[threshold].get(f, carried[i]) for i, f in enumerate(LITELLM_FIELDS)]
             tiers.append([threshold + 1] + carried)
         row = base + [tiers]
-        if row_ok(row):
+        if not corrupt and row_ok(row):
             out[key] = row
     return out
 
@@ -224,25 +269,35 @@ def litellm_rows(raw):
 def modelsdev_rows(raw):
     """"provider/model" -> row, with the provider's own model id after the first slash."""
     out = {}
+    if not isinstance(raw, dict):
+        return out
     for provider, body in raw.items():
-        if not isinstance(body, dict):
+        models = body.get("models") if isinstance(body, dict) else None
+        if not isinstance(models, dict):
             continue
-        for model_id, m in (body.get("models") or {}).items():
+        for model_id, m in models.items():
             c = m.get("cost") if isinstance(m, dict) else None
             if not isinstance(c, dict):
                 continue
-            base = [num(c.get("input")), num(c.get("output")), num(c.get("cache_read")), num(c.get("cache_write")), 0]
-            tiers = []
-            for t in sorted((t for t in c.get("tiers") or [] if isinstance(t, dict) and (t.get("tier") or {}).get("type") == "context"),
-                            key=lambda t: t["tier"].get("size", 0)):
-                tiers.append([int(t["tier"].get("size", 0)) + 1, given(t, "input", base[0]), given(t, "output", base[1]),
-                              given(t, "cache_read", base[2]), given(t, "cache_write", base[3]), 0])
+            base = [num(c.get("input")), num(c.get("output")), num(c.get("cache_read")), num(c.get("cache_write")), 0.0]
+            ctx = [t for t in (c.get("tiers") if isinstance(c.get("tiers"), list) else [])
+                   if isinstance(t, dict) and isinstance(t.get("tier"), dict) and t["tier"].get("type") == "context"]
+            ctx.sort(key=lambda t: num(t["tier"].get("size")))
+            tiers, corrupt = [], False
+            for t in ctx:
+                size = _start(t["tier"].get("size"))
+                if size is None:
+                    corrupt = True
+                    break
+                tiers.append([size + 1, given(t, "input", base[0]), given(t, "output", base[1]),
+                              given(t, "cache_read", base[2]), given(t, "cache_write", base[3]), 0.0])
             over = c.get("context_over_200k")
             if not tiers and isinstance(over, dict):
                 tiers.append([200001, given(over, "input", base[0]), given(over, "output", base[1]),
-                              given(over, "cache_read", base[2]), given(over, "cache_write", base[3]), 0])
-            row = base + [tiers, str(m.get("name") or "")]
-            if row_ok(row):
+                              given(over, "cache_read", base[2]), given(over, "cache_write", base[3]), 0.0])
+            name = m.get("name") if isinstance(m.get("name"), str) else ""
+            row = base + [tiers, name]
+            if not corrupt and row_ok(row):
                 out[f"{provider}/{model_id}"] = row
     return out
 
@@ -522,11 +577,11 @@ class Pricer:
                         cacheRead=0.0, cacheWrite=0.0, cacheWrite1h=0.0)
         if isinstance(alias.get("as"), str) and alias["as"]:
             return self.apply_alias(alias["as"], key, own, visited, steps)
-        inp, out = num(alias.get("input")), num(alias.get("output"))
+        inp, out = alias_number(alias.get("input")), alias_number(alias.get("output"))
         if alias_rates_ok(alias):
             # 0 is a price (a free cache); only a key that is not there (or is null) leaves the cache priced like input
-            read = num(alias["cacheRead"]) if alias.get("cacheRead") is not None else inp
-            write = num(alias["cacheWrite"]) if alias.get("cacheWrite") is not None else inp
+            read = alias_number(alias["cacheRead"]) if alias.get("cacheRead") is not None else inp
+            write = alias_number(alias["cacheWrite"]) if alias.get("cacheWrite") is not None else inp
             note = alias.get("source") if isinstance(alias.get("source"), str) and alias["source"] else None
             kind = alias.get("kind") if alias.get("kind") in ("near", "other") else "alias"
             return dict(key=key, name=alias.get("name") if isinstance(alias.get("name"), str) else key, kind=kind,

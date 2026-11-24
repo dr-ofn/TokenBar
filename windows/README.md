@@ -91,8 +91,9 @@ A string (or `{"as": "model"}`) prices it like that model; `{"input": ..., "outp
 tokenbar-cli.exe --window all --json     JSON: total, calls, cost, harnesses, unpriced, detected
 tokenbar-cli.exe --window 7d             a text report
 tokenbar-cli.exe --home D:\backup\me     read another home folder (no environment variable is followed;
-                                         the index stays in your own %LOCALAPPDATA%, nothing is written into that
-                                         folder; add --db FILE to keep its numbers out of your own index)
+                                         nothing is written into that folder). Without --db the index is kept at
+                                         %LOCALAPPDATA%\TokenBar\homes\<hash>\usage.sqlite (separate from your
+                                         own index). Add --db FILE to choose the index file yourself
 tokenbar-cli.exe --refresh-prices        (also --prices-now) fetch the price lists now, whatever the one-day wait or an
                                          earlier failure says (like the menu's Update prices); with --offline nothing is fetched
 tokenbar-cli.exe --offline --no-scan     report from the index, touch nothing (--offline: no network at all)

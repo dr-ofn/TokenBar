@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import re
 import sqlite3
 
 from .. import extdb
-from ..util import (JSON_ERRORS, BadFile, epoch, iter_lines, line_hash, load_json_file, loads, num, raw_num, read_json_file, text, walk_files,
+from ..util import (JSON_ERRORS, BadFile, epoch, iter_lines, line_hash, load_json_file, loads, note_unreadable, num, raw_num, read_json_file, text, walk_files,
                     seen_once, mtime, clamp, longpath, run_seconds, safe_text)
 from .base import db_stamp, family
 
@@ -263,15 +264,38 @@ OVERLAP_ROWS = 2000
 def opencode_files(ctx, d):
     out = []
     for root in ctx.roots(d):
-        if os.path.isfile(longpath(root)):
+        lp = longpath(root)
+        try:
+            st = os.stat(lp)
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            note_unreadable(root)
+            continue
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode):
             out.append(root)
             continue
-        if not os.path.isdir(longpath(root)):
+        if not stat.S_ISDIR(st.st_mode):
             continue
         if d.prefix == "kilo":
-            names = sorted(n for n in os.listdir(longpath(root)) if n == "kilo.db" or (n.startswith("kilo-") and n.endswith(".db")))
+            try:
+                names = sorted(n for n in os.listdir(lp) if n == "kilo.db" or (n.startswith("kilo-") and n.endswith(".db")))
+            except PermissionError:
+                note_unreadable(root)
+                names = []
+            except OSError:
+                names = []
         else:
-            names = ["opencode.db"] if os.path.isfile(longpath(os.path.join(root, "opencode.db"))) else []
+            names = []
+            try:
+                if stat.S_ISREG(os.stat(longpath(os.path.join(root, "opencode.db"))).st_mode):
+                    names = ["opencode.db"]
+            except PermissionError:
+                note_unreadable(root)           # the folder is there but its files cannot be looked at
+            except OSError:
+                pass
         out += [os.path.join(root, n) for n in names]
     return seen_once(out)
 

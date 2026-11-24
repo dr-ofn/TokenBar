@@ -90,8 +90,9 @@ Bir metin (ya da `{"as": "model"}`) o modelin fiyatını verir; `{"input": ..., 
 tokenbar-cli.exe --window all --json     JSON: total, calls, cost, harnesses, unpriced, detected
 tokenbar-cli.exe --window 7d             metin raporu
 tokenbar-cli.exe --home D:\yedek\ben     başka bir ev klasörünü oku (ortam değişkeni izlenmez;
-                                         indeks kendi %LOCALAPPDATA%'nda kalır, o klasöre hiçbir şey yazılmaz;
-                                         sayılarını kendi indeksinden ayırmak için --db DOSYA ekle)
+                                         o klasöre hiçbir şey yazılmaz). --db yoksa indeks
+                                         %LOCALAPPDATA%\TokenBar\homes\<özet>\usage.sqlite dosyasında tutulur,
+                                         kendi indeksinize karışmaz. İndeks dosyasını elle seçmek için --db DOSYA
 tokenbar-cli.exe --refresh-prices        (ya da --prices-now) fiyat listelerini şimdi indir, bir günlük bekleme ya da önceki bir
                                          başarısızlık ne derse desin (menüdeki Fiyatları güncelle gibi); --offline ile hiçbir şey indirilmez
 tokenbar-cli.exe --offline --no-scan     indeksten raporla, hiçbir şeye dokunma (--offline: hiç ağ yok)
