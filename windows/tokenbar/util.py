@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Iterator
@@ -258,7 +259,7 @@ def iter_lines(path: str, start: int = 0, limit: int | None = None, settled: boo
     """(line, offset just past it) for every complete line from byte `start` up to `limit`.
 
     A final line without a newline is delivered only when `settled` (the file has been quiet long enough
-    that it is complete). Lines over MAX_LINE_BYTES are skipped, not loaded. CR before LF is removed;
+    that it is complete). Lines over MAX_LINE_BYTES are skipped, not loaded (the file is kept for `take_overlong`). CR before LF is removed;
     a UTF-8 BOM in front of any line is dropped. Raises OSError when the file cannot be opened.
     """
     with open(longpath(path), "rb") as f:
@@ -270,13 +271,19 @@ def iter_lines(path: str, start: int = 0, limit: int | None = None, settled: boo
             if not chunk:
                 return
             if len(chunk) > MAX_LINE_BYTES:
-                # An absurdly long line: drop the rest of it without keeping it in memory.
+                # An absurdly long line: drop the rest of it without keeping it in memory, and let the scanner name the file.
+                _note("long", path)
                 while not chunk.endswith(b"\n"):
                     chunk = f.readline(1 << 20)
                     pos += len(chunk)
                     if not chunk:
                         return
                 pos += MAX_LINE_BYTES + 1
+                if limit is not None and pos > limit:
+                    return                    # it ran past the size this pass was given (the file grew): next pass
+                # The cursor moves past it at once, as for a blank line and as the Mac reader's does: whatever follows
+                # (the end of the file, a limit, a half-written line), it is not read and named again.
+                yield "", pos
                 continue
             end = pos + len(chunk)
             if limit is not None and end > limit:
@@ -324,27 +331,73 @@ def _always_long(path: str) -> str:
     return path
 
 
+_notes = threading.local()
+
+
+def _note(kind: str, item: str) -> None:
+    """Remembers a problem met on the way (a folder that cannot be read, a line left out) for the scanner to name: the
+    walk and the line reader return plain lists and lines, so what they skip is kept on the side, per thread."""
+    box = getattr(_notes, kind, None)
+    if box is None:
+        box = []
+        setattr(_notes, kind, box)
+    if item not in box and len(box) < 1000:
+        box.append(item)
+
+
+def _take(kind: str) -> list[str]:
+    box = getattr(_notes, kind, None) or []
+    setattr(_notes, kind, [])
+    return box
+
+
+def take_walk_errors() -> list[str]:
+    """The folders `walk_files` could not read since the last call (written as the caller wrote the root), each once."""
+    return _take("walk")
+
+
+def take_overlong() -> list[str]:
+    """The files `iter_lines` left a line of over MAX_LINE_BYTES out of since the last call, each once."""
+    return _take("long")
+
+
 def walk_files(root: str, match, max_depth: int | None = None) -> list[str]:
     """Every file under `root` whose base name `match(name)` accepts, sorted. A missing root has none.
 
     On Windows the walk runs on the `\\\\?\\` form of the root whatever its length: a short root with a path of 260
-    characters or more below it would otherwise be skipped, without a word (os.walk swallows the error). The paths
-    come back written as the caller wrote the root."""
+    characters or more below it would otherwise be skipped, without a word. The paths come back written as the caller
+    wrote the root. A folder that exists and cannot be read (no permission) is not skipped silently either: it is
+    kept for `take_walk_errors`, and the files that can be read are still listed."""
     out: list[str] = []
     shown = root
     root = _always_long(root)
+
+    def shown_form(p: str) -> str:
+        if p.startswith(root):
+            rel = p[len(root):].lstrip("\\/")
+            return os.path.join(shown, rel) if rel else shown
+        return p
+
     if not os.path.isdir(root):
+        try:
+            os.stat(root)
+        except (FileNotFoundError, NotADirectoryError):
+            pass                                  # not there: nothing to count and nothing to say
+        except PermissionError:
+            _note("walk", shown)                  # there, but its way cannot be walked (a parent without permission)
+        except OSError:
+            pass
         return out
     base_depth = root.rstrip("\\/").count(os.sep)
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+
+    def failed(e: OSError) -> None:
+        _note("walk", shown_form(e.filename if isinstance(e.filename, str) else root))
+
+    for dirpath, dirnames, filenames in os.walk(root, onerror=failed, followlinks=False):
         if max_depth is not None and dirpath.rstrip("\\/").count(os.sep) - base_depth >= max_depth:
             dirnames[:] = []
         dirnames.sort()
-        if dirpath.startswith(root):
-            rel = dirpath[len(root):].lstrip("\\/")
-            here = os.path.join(shown, rel) if rel else shown
-        else:
-            here = dirpath
+        here = shown_form(dirpath)
         for name in sorted(filenames):
             if match(name):
                 out.append(os.path.join(here, name))

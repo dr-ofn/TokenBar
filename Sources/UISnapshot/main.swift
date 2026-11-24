@@ -367,6 +367,65 @@ final class Hits: @unchecked Sendable {
     return failed
 }
 
+/// One setting this version does not understand puts that setting back to its default, not every setting (9.0.5). Decoding
+/// only: the saved copy in this Mac's defaults is never read or written here.
+func preferencesChecks() -> Int {
+    var failed = 0
+    func expect(_ name: String, _ cond: Bool) {
+        print((cond ? "ok   " : "FAIL ") + name)
+        if !cond { failed += 1 }
+    }
+    func read(_ json: String) -> Preferences? { try? JSONDecoder().decode(Preferences.self, from: Data(json.utf8)) }
+    let unknownPeriod = read(#"{"window":"2w","offline":true}"#)
+    expect("tercihler: bilinmeyen dönem yalnız dönemi varsayılana alır, Çevrimdışı kalır", unknownPeriod?.window == .week && unknownPeriod?.offline == true)
+    let wrongType = read(#"{"window":"all","offline":"yes"}"#)
+    expect("tercihler: yanlış türde Çevrimdışı yalnız kendini varsayılana alır, dönem kalır", wrongType?.window == .all && wrongType?.offline == false)
+    let numberWindow = read(#"{"window":5,"offline":true}"#)
+    expect("tercihler: sayı olan dönem varsayılana düşer, Çevrimdışı kalır", numberWindow?.window == .week && numberWindow?.offline == true)
+    let extra = read(#"{"window":"30d","offline":true,"later":{"x":1}}"#)
+    expect("tercihler: bilinmeyen alan görmezden gelinir", extra?.window == .month && extra?.offline == true)
+    let old = read(#"{"window":"24h"}"#)
+    expect("tercihler: eski kopyada olmayan alan varsayılan kalır", old?.window == .day && old?.offline == false)
+    let encoded = (try? JSONEncoder().encode({ () -> Preferences in var p = Preferences(); p.window = .all; p.offline = true; return p }())) ?? Data()
+    let back = try? JSONDecoder().decode(Preferences.self, from: encoded)
+    expect("tercihler: yazılan kopya aynen okunur", back?.window == .all && back?.offline == true)
+    expect("tercihler: nesne olmayan kopya bozuk sayılır (varsayılanlar load()'da)", read("[1,2]") == nil)
+    return failed
+}
+
+/// The notice under the picture: the first issues spelled out, the rest counted (an engine on a scratch folder, never this Mac's).
+@MainActor func noticeChecks(_ lang: Lang) -> Int {
+    L10n.setLanguage(lang)
+    defer { L10n.setLanguage(nil) }
+    var failed = 0
+    func expect(_ name: String, _ cond: Bool) {
+        print((cond ? "ok   " : "FAIL ") + "[\(lang.rawValue)] " + name)
+        if !cond { failed += 1 }
+    }
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tokenbar-notice-\(UUID().uuidString.prefix(8))").path
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let model = AppModel(engine: Engine(home: dir, dbPath: dir + "/notice.sqlite"))
+    expect("uyarı: sorun yokken uyarı yok", model.notice == nil)
+    model.issues = [SourceIssue(source: "Claude Code", message: "/x/a.jsonl: okunamıyor")]
+    expect("uyarı: tek sorun olduğu gibi yazılır, sayaç yok", model.notice == "Claude Code: " + IssueText.localized("/x/a.jsonl: okunamıyor"))
+    let long = String(repeating: "NSError dökümü ", count: 50)
+    model.issues = (0..<300).map { SourceIssue(source: "Claude Code", message: "/x/f\($0).jsonl: \(long)") }
+    let text = model.notice ?? ""
+    expect("uyarı: 300 sorun birkaç satıra iniyor (\(text.count) karakter)", text.count < 1500)
+    expect("uyarı: ilk üç sorun adlarıyla yazılıyor", text.contains("f0.jsonl") && text.contains("f1.jsonl") && text.contains("f2.jsonl") && !text.contains("f3.jsonl"))
+    expect("uyarı: kalan 297 sayılıyor", text.contains(L10n.t("ve 297 tane daha", "and 297 more")))
+    model.issues = (0..<3).map { SourceIssue(source: "Zed", message: "m\($0)") }
+    expect("uyarı: tam üç sorunda sayaç yok", !(model.notice ?? "").contains(L10n.t("tane daha", "more")))
+    model.issues = (0..<4).map { SourceIssue(source: "Zed", message: "m\($0)") }
+    expect("uyarı: dördüncü sorun '1 tane daha'", (model.notice ?? "").contains(L10n.t("ve 1 tane daha", "and 1 more")))
+    model.statusMessage = "Tarama hatası"
+    model.priceWarning = "Fiyat uyarısı"
+    let both = model.notice ?? ""
+    expect("uyarı: durum satırı başta, fiyat uyarısı sonda kalıyor", both.hasPrefix("Tarama hatası") && both.hasSuffix("Fiyat uyarısı"))
+    return failed
+}
+
 /// UI invariants that can be checked without a screen.
 @MainActor func selfcheck() async throws -> Int32 {
     // The prices the checks expect are the embedded snapshot's and the hand-made tables': never this Mac's price cache
@@ -394,6 +453,9 @@ final class Hits: @unchecked Sendable {
     failed += await hugeCountChecks(.tr)
     failed += await hugeCountChecks(.en)
     failed += contrastChecks()
+    failed += preferencesChecks()
+    failed += noticeChecks(.tr)
+    failed += noticeChecks(.en)
     print(failed == 0 ? "UI SELF-CHECK OK" : "\(failed) UI SELF-CHECK FAILED")
     return failed == 0 ? 0 : 1
 }

@@ -123,6 +123,8 @@ public struct UsageReport: Sendable {
         // Fix the incoming order first, so group names and notes do not depend on dictionary order.
         let stats = stats.sorted { $0.id < $1.id }
 
+        // The groups that already have an unpriced model in the list (a set: the list itself is searched once per model otherwise).
+        var unpricedGroups = Set<String>()
         // Every harness the rows name, in a fixed order; the list is sorted by size below.
         let byHarness = Dictionary(grouping: stats, by: \.harness)
         for harness in byHarness.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
@@ -135,7 +137,7 @@ public struct UsageReport: Sendable {
                 stat.calls += model.calls
                 stat.cost += model.cost
                 stat.parts += model.parts
-                if !model.info.price.isPriced, !unpriced.contains(where: { $0.group == model.info.group }) {
+                if !model.info.price.isPriced, unpricedGroups.insert(model.info.group).inserted {
                     unpriced.append(model.info)
                 }
             }

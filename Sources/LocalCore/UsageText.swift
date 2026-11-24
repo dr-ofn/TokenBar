@@ -34,8 +34,9 @@ public enum UsageText {
     /// English "1.40B", "1.2M", "113.6K".
     public static func tokens(_ n: Int64) -> String {
         let turkish = L10n.lang == .tr
-        if n >= 1_000_000_000 { return decimal(Double(n) / 1e9, 2) + (turkish ? " milyar" : "B") }
-        if n >= 1_000_000 { return decimal(Double(n) / 1e6, 1) + (turkish ? " milyon" : "M") }
+        // The unit is chosen after the rounding: 999 950 is "1,0 milyon" (999,95 rounds to 1000,0), never "1.000,0 bin".
+        if n >= 999_950_000 { return decimal(Double(n) / 1e9, 2) + (turkish ? " milyar" : "B") }
+        if n >= 999_950 { return decimal(Double(n) / 1e6, 1) + (turkish ? " milyon" : "M") }
         if n >= 1000 { return decimal(Double(n) / 1e3, 1) + (turkish ? " bin" : "K") }
         return String(n)
     }

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 import os
 import sys
 
@@ -92,11 +93,15 @@ def run_cli(argv: list[str]) -> int:
         else:
             print(__version__)
         return 0
+    if args.home:
+        # Read by its real path, so two spellings of one home (a link, a different case) are one set of files.
+        args.home = os.path.realpath(args.home)
     env = Env.for_home(args.home) if args.home else Env.from_os()
     # The index and the price cache are TokenBar's own files: they live with the person running it (or in `--db`),
-    # never inside the folder that is being read.
+    # never inside the folder that is being read. Another home (`--home` without `--db`) gets an index of its own there,
+    # as on the Mac, so its calls are never mixed into the person's own index.
     own = Env.from_os()
-    db_path = args.db or own.db_path()
+    db_path = args.db or (home_index_path(own, args.home) if args.home else own.db_path())
     if args.rebuild and os.path.normcase(os.path.realpath(db_path)) == os.path.normcase(os.path.realpath(own.db_path())):
         print("tokenbar: --rebuild " + t("reddedildi: indeks varsayılan konumda", "refused: the index is at its default location")
               + f" ({db_path})", file=sys.stderr)
@@ -150,6 +155,13 @@ def render_text(report, window: str) -> str:
     if not report.harnesses:
         lines.append(t("  (bu aralıkta çağrı yok)", "  (no calls in this window)"))
     return "\n".join(lines)
+
+
+def home_index_path(own: Env, home: str) -> str:
+    """`<own data folder>/homes/<first 16 hex of the SHA-256 of the home's real path>/usage.sqlite` (the Mac's rule)."""
+    real = os.path.normcase(os.path.realpath(home))
+    digest = hashlib.sha256(real.encode("utf-8", "surrogatepass")).hexdigest()[:16]
+    return os.path.join(own.data_dir(), "homes", digest, "usage.sqlite")
 
 
 def main(argv: list[str] | None = None) -> int:

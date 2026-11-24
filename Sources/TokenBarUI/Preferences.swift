@@ -11,11 +11,13 @@ public struct Preferences: Equatable, Codable {
 
     public init() {}
 
-    /// A saved copy from before a setting existed has no key for it: that setting keeps its default.
+    /// A saved copy from before a setting existed has no key for it: that setting keeps its default. A value this version
+    /// does not understand (a period a newer or older version wrote, a wrong type) is one setting back to its default, not
+    /// all of them: the others are read as they were.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        window = try c.decodeIfPresent(Period.self, forKey: .window) ?? .week
-        offline = try c.decodeIfPresent(Bool.self, forKey: .offline) ?? false
+        window = ((try? c.decodeIfPresent(Period.self, forKey: .window)) ?? nil) ?? .week
+        offline = ((try? c.decodeIfPresent(Bool.self, forKey: .offline)) ?? nil) ?? false
     }
 
     static func load() -> Preferences {

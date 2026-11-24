@@ -400,6 +400,10 @@ func fix901Checks(tempDir: () throws -> String) throws {
     // MARK: 8  the price refresh repeats once a day while the app runs
 
     do {
+        // The check sets its own environment: a shell that exports TOKENBAR_OFFLINE=1 must not switch the network off here.
+        let savedOffline = getenv("TOKENBAR_OFFLINE").map { String(cString: $0) }
+        unsetenv("TOKENBAR_OFFLINE")
+        defer { if let savedOffline { setenv("TOKENBAR_OFFLINE", savedOffline, 1) } }
         let dir = URL(fileURLWithPath: try tempDir(), isDirectory: true)
         let fetcher = ScriptedFetcher()
         let text = #"{"data":[{"id":"acme/daily-1","name":"Acme: Daily","pricing":{"prompt":"0.000001","completion":"0.000002"}}]}"#

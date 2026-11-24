@@ -4,6 +4,11 @@ import Foundation
 public struct SourceIssue: Sendable, Equatable {
     public var source: String
     public var message: String
+
+    public init(source: String, message: String) {
+        self.source = source
+        self.message = message
+    }
 }
 
 /// What one source contributed in a pass.
@@ -93,6 +98,10 @@ public final class UsageScanner {
     /// Databases already read in this pass whose files come as a pair (Zed's `threads.db` and its `-wal`): the
     /// second file of the pair is recorded without a second read of the same database.
     var readThisPass: Set<String> = []
+    /// Folders found unreadable while the files of a source were listed (`walk`); the pass that listed them names them.
+    var walkProblems: [String] = []
+    /// Lines over `LineReader.maxLineBytes` that were skipped while a file was read (path: how many); named by the pass.
+    var longLines: [String: Int] = [:]
     /// The stamp of such a pair (the .db and the -wal, each by inode, size and mtime) taken before the pair was read.
     /// The second file of the pair is recorded as read only while the pair still looks like that: a write that came
     /// after the read and before the second file was looked at is not in what was read.
@@ -123,6 +132,8 @@ public final class UsageScanner {
         if let problem = PriceBook.aliasIssue { result.issues.append(SourceIssue(source: UserAliases.fileName, message: problem)) }
         readThisPass = []
         pairStamps = [:]
+        walkProblems = []
+        longLines = [:]
         do { try store.repairZeroDates() } catch { result.issues.append(SourceIssue(source: "index", message: L10n.t("tarih onarımı: \(error)", "date repair: \(error)"))) }
 
         for descriptor in catalog.descriptors where descriptor.family != .opencodeSQLite && !descriptor.family.readsOwnDatabases && descriptor.family != .notCountable {
@@ -131,7 +142,10 @@ public final class UsageScanner {
 
         var stat = SourceStat(name: "opencode")
         for descriptor in catalog.descriptors where descriptor.family == .opencodeSQLite {
-            for db in openCodeDatabases(descriptor, roots: catalog.rootPaths(of: descriptor)) {
+            let databases = openCodeDatabases(descriptor, roots: catalog.rootPaths(of: descriptor))
+            result.issues += walkProblems.map { SourceIssue(source: "opencode", message: $0) }
+            walkProblems = []
+            for db in databases {
                 do {
                     try readOpenCode(db: db, prefix: descriptor.keyPrefixes[0], &stat)
                 } catch {
@@ -168,12 +182,17 @@ public final class UsageScanner {
             return
         }
         let now = Date().timeIntervalSince1970
-        for path in source.files() {
+        let listed = source.files()
+        problems += walkProblems
+        walkProblems = []
+        for path in listed {
             if let why = source.blocker?(path) {
                 blocked[why, default: 0] += 1
                 continue
             }
-            guard let st = Self.fileInfo(path) else { continue }
+            // A FIFO named like a log would block the scan for good (a socket or a device is no log either): those are not opened.
+            // A folder where a file should be still goes on to be read, and fails by name, as before.
+            guard let st = Self.fileInfo(path), (st.st_mode & S_IFMT) == S_IFREG || (st.st_mode & S_IFMT) == S_IFDIR else { continue }
             let inode = UInt64(st.st_ino), size = UInt64(st.st_size)
             let mtime = Self.modified(st)
             let old = records[path]
@@ -192,11 +211,16 @@ public final class UsageScanner {
             do {
                 // Decoded lines are autoreleased: drain them file by file, or a first full
                 // index keeps gigabytes alive until the pass ends.
+                longLines[path] = nil
                 let read = try autoreleasepool { try source.read(file) }
+                var longProblem: [String] = []
+                if let n = longLines[path] {
+                    longProblem = [L10n.t("\(n) satır 256 MiB'den uzun, atlandı", "\(n) line(s) over 256 MiB skipped")]
+                }
                 pending.append(UsageStore.FileUpdate(
                     record: UsageStore.FileRecord(path: path, inode: inode, size: size, mtime: mtime, offset: read.end),
                     events: read.events, meta: read.meta, retire: read.retire, retirePrefixes: read.retirePrefixes))
-                problems += read.issues.map { "\(path): \($0)" }
+                problems += (read.issues + longProblem).map { "\(path): \($0)" }
                 pendingMeta.merge(read.meta) { _, new in new }
                 progress.filesRead += 1
                 progress.events += read.events.count
@@ -217,12 +241,54 @@ public final class UsageScanner {
         result.sources.append(progress)
     }
 
-    /// Every file under `root` whose name passes `match`.
+    /// Every file under `root` whose name passes `match`. A folder under it that cannot be read is not skipped in silence:
+    /// it is kept in `walkProblems` (the pass names it) and the files that can be read are still listed. A root that is
+    /// not there is no problem; one that is there and cannot be read is.
     func walk(_ root: String, _ match: (String) -> Bool) -> [String] {
-        guard let names = FileManager.default.enumerator(atPath: root) else { return [] }
+        // A root that cannot even be looked at (a parent without permission) is there, not missing: named, as on Windows.
+        var rootInfo = Darwin.stat()
+        if stat(root, &rootInfo) != 0 {
+            // EPERM as well: macOS privacy protection (TCC) refuses with it where a plain permission says EACCES.
+            if errno == EACCES || errno == EPERM {
+                let problem = root + ": " + L10n.t("okunamıyor", "cannot be read")
+                if !walkProblems.contains(problem) { walkProblems.append(problem) }
+            }
+            return []
+        }
+        // A root that is a file, not a folder, holds no logs and is no problem (as on Windows).
+        if (rootInfo.st_mode & S_IFMT) != S_IFDIR { return [] }
+        // Walked from its real path: a root that is itself a symbolic link (~/.claude/projects kept on another disk) is
+        // followed, as before 9.0.5 and on Windows, and what the walk reports maps back to the root's own spelling.
+        let realRoot: String = {
+            guard let p = realpath(root, nil) else { return root }
+            defer { free(p) }
+            return String(cString: p)
+        }()
+        let rootURL = URL(fileURLWithPath: realRoot, isDirectory: true)
+        var unreadable: [String] = []
+        guard let names = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: nil, options: [], errorHandler: { (url: URL, _: Error) -> Bool in
+            unreadable.append(url.path)
+            return true
+        }) else { return [] }
         var out: [String] = []
-        for case let name as String in names where match((name as NSString).lastPathComponent) {
-            out.append(root + "/" + name)
+        for case let url as URL in names {
+            // The path under the root is the last `level` components: the enumerator may hand back the root resolved
+            // (/var -> /private/var), so the root's own spelling is not a prefix of what it returns.
+            let name = url.pathComponents.suffix(names.level).joined(separator: "/")
+            if match((name as NSString).lastPathComponent) { out.append(root + "/" + name) }
+        }
+        if !unreadable.isEmpty, FileManager.default.fileExists(atPath: root) {
+            // Named in the root's own spelling, whichever way the enumerator spells it (resolved or not).
+            let resolved = rootURL.resolvingSymlinksInPath().path
+            for found in unreadable {
+                var path = found
+                for base in [realRoot, resolved, rootURL.path] where found == base || found.hasPrefix(base + "/") {
+                    path = root + found.dropFirst(base.count)
+                    break
+                }
+                let problem = path + ": " + L10n.t("okunamıyor", "cannot be read")
+                if !walkProblems.contains(problem) { walkProblems.append(problem) }
+            }
         }
         return out
     }
@@ -230,10 +296,12 @@ public final class UsageScanner {
     /// Calls `body` for every complete line of `file`, up to its limit. Returns where the reading stopped.
     func readLines(_ file: FileToRead, _ body: (UnsafeRawBufferPointer) throws -> Void) throws -> UInt64 {
         linePasses[file.path, default: 0] += 1
-        return try LineReader.forEachLine(path: file.path, from: file.offset, upTo: file.limit, consumeTrailingLine: file.settled) { line in
+        let result = try LineReader.forEachLine(path: file.path, from: file.offset, upTo: file.limit, consumeTrailingLine: file.settled) { line in
             try body(line)
             return true
-        }.endOffset
+        }
+        if result.skippedLines > 0 { longLines[file.path] = max(longLines[file.path] ?? 0, result.skippedLines) }
+        return result.endOffset
     }
 
     static func fileInfo(_ path: String) -> Darwin.stat? {

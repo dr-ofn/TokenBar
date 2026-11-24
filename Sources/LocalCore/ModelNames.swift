@@ -77,6 +77,22 @@ public enum ModelNames {
     private static let brands: [String: String] = ["deepseek": "DeepSeek", "minimax": "MiniMax", "mimo": "MiMo", "longcat": "LongCat",
                                                    "sensenova": "SenseNova", "openai": "OpenAI", "qwen": "Qwen"]
 
+    /// A name that came from a catalogue over the network, as the picture and `tokenbar-cli` may print it: without C0 and
+    /// C1 control characters (an ESC would let a name move a terminal's cursor or set its title) and without the bidi
+    /// overrides and isolates U+202A-202E and U+2066-2069 (they would reorder the text around them). Everything else, a
+    /// zero-width joiner and the Turkish letters included, stays.
+    public static func displaySafe(_ text: String) -> String {
+        guard text.unicodeScalars.contains(where: { isUnsafeForDisplay($0) }) else { return text }
+        var scalars = String.UnicodeScalarView()
+        for u in text.unicodeScalars where !isUnsafeForDisplay(u) { scalars.append(u) }
+        return String(scalars)
+    }
+
+    private static func isUnsafeForDisplay(_ u: Unicode.Scalar) -> Bool {
+        let v = u.value
+        return v < 0x20 || (0x7F...0x9F).contains(v) || (0x202A...0x202E).contains(v) || (0x2066...0x2069).contains(v)
+    }
+
     /// A readable name for a catalogue id that has no name of its own: `claude-mythos-5-2` is "Claude Mythos 5.2",
     /// `gpt-6.2-sol` "GPT-6.2 Sol". The provider path, route tags and dates go; two small numbers in a row (or one
     /// after a letter-and-digit word such as `k3`) are a version, so `-` becomes `.`; a word with a digit is upper case

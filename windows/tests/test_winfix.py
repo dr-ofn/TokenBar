@@ -386,7 +386,10 @@ def test_home_flag_never_writes_into_the_inspected_folder(monkeypatch, tmp_path)
     before = _tree(backup)
     rc = cli.run_cli(["--home", backup, "--window", "all", "--json", "--output", str(tmp_path / "o.json")])
     assert rc == 0 and _tree(backup) == before
-    assert (mine / "Local" / "TokenBar" / "usage.sqlite").exists()
+    # 9.0.5: the index lives with the person running it, as before, but is one of its own for that home: the backup's
+    # calls are not mixed into the person's own index (the Mac's rule).
+    assert not (mine / "Local" / "TokenBar" / "usage.sqlite").exists()
+    assert os.path.exists(cli.home_index_path(cli.Env.from_os(), backup)) and str(mine) in cli.home_index_path(cli.Env.from_os(), backup)
     assert json.loads((tmp_path / "o.json").read_text())["total"] == 34990
 
 

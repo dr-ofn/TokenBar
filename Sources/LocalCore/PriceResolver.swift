@@ -60,20 +60,23 @@ final class PriceResolver: @unchecked Sendable {
             return PriceEntry.Tier(minPrompt: t.minPrompt, input: x.0, output: x.1, cacheRead: x.2, cacheWrite: x.3, cacheWrite1h: x.4)
         }
         // The catalogue's own name when it has one (LiteLLM rows have none); otherwise a readable form of the id.
-        let name = !row.name.isEmpty ? row.name : ModelNames.display(Catalog.modelPart(source, id))
+        // (a name that was nothing but such characters falls back to the readable form of the id, like a missing one)
+        var name = ModelNames.displaySafe(row.name)
+        if name.isEmpty { name = ModelNames.displaySafe(ModelNames.display(Catalog.modelPart(source, id))) }
         let kind: PriceKind = source == .openrouter ? .openrouter : source == .litellm ? .litellm : .modelsdev
-        return PriceEntry(key: key, name: name, kind: kind, source: "\(source.displayName): \(id)", catalog: source.displayName, catalogID: id,
+        return PriceEntry(key: key, name: name, kind: kind, source: "\(source.displayName): \(ModelNames.displaySafe(id))", catalog: source.displayName, catalogID: id,
                           input: r.0, output: r.1, cacheRead: r.2, cacheWrite: r.3, cacheWrite1h: r.4, tiers: tiers)
     }
 
     /// A row the catalogue left without a name takes the name another catalogue gives the same model (OpenRouter,
     /// models.dev), else the readable form of its id. Only the picture's label changes, never a price.
     private func named(_ e: PriceEntry, hit: Catalog.Hit, keys: [String]) -> PriceEntry {
-        guard hit.row.name.isEmpty else { return e }
+        // A name made only of control marks is no name (it shows as nothing): look further, as for an empty one.
+        guard ModelNames.displaySafe(hit.row.name).isEmpty else { return e }
         var out = e
         for catalog in ordered {
             for key in keys {
-                if let other = catalog.byKey[key], !other.row.name.isEmpty { out.name = other.row.name; return out }
+                if let other = catalog.byKey[key], !ModelNames.displaySafe(other.row.name).isEmpty { out.name = ModelNames.displaySafe(other.row.name); return out }
             }
         }
         return out

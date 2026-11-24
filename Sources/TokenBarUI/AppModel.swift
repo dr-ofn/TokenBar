@@ -40,11 +40,24 @@ public final class AppModel {
         PriceBook.offline = prefs.offline
     }
 
-    /// A failure or a broken source, named instead of silently shrinking the numbers.
+    /// How many source issues the notice spells out; the rest are counted (the whole list is `tokenbar-cli`'s).
+    static let noticeIssueLimit = 3
+    /// The longest a single issue is written in the notice.
+    static let noticeIssueCharacters = 300
+
+    /// A failure or a broken source, named instead of silently shrinking the numbers. Three hundred unreadable files are
+    /// three lines and "and 297 more", not a paragraph that fills the panel.
     public var notice: String? {
         var parts: [String] = []
         if let statusMessage { parts.append(statusMessage) }
-        parts += issues.map { "\($0.source): \(IssueText.localized($0.message))" }
+        parts += issues.prefix(Self.noticeIssueLimit).map { (issue: SourceIssue) -> String in
+            let text = "\(issue.source): \(IssueText.localized(issue.message))"
+            return text.count > Self.noticeIssueCharacters ? String(text.prefix(Self.noticeIssueCharacters)) + "…" : text
+        }
+        if issues.count > Self.noticeIssueLimit {
+            let more = issues.count - Self.noticeIssueLimit
+            parts.append(L10n.t("ve \(more) tane daha (tam liste: tokenbar-cli)", "and \(more) more (full list: tokenbar-cli)"))
+        }
         if let priceWarning { parts.append(priceWarning) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

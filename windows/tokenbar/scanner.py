@@ -8,17 +8,19 @@ from __future__ import annotations
 
 import json
 import os
+import stat as _stat
 import time
 import traceback
 from dataclasses import dataclass, field
 
 from . import readers as _readers  # noqa: F401  (registers the families)
 from .catalog import Catalog
+from . import util as _util
 from .paths import Env
 from .readers import core, g1, g2, g3  # noqa: F401
 from .readers.base import REGISTRY, Sink
 from .store import FileRecord, Store
-from .util import SETTLE_SECONDS, BadFile, Retry, longpath, safe_text
+from .util import SETTLE_SECONDS, BadFile, Retry, longpath, safe_text, take_overlong, take_walk_errors
 
 BADFILE = "badfile:"     # meta key prefix: a recorded file that was named bad (too large to unpack) stays named after a restart
 BATCH_FILES = 200
@@ -107,6 +109,13 @@ class Scanner:
                 continue
             self._bad.pop(path, None)
             self._forget_bad(path)
+            # The file's record goes with the verdict: should the file come back as it was (an unplugged drive, a sync
+            # that moved it away for a pass), it is read again and its warning with it, not skipped for matching a record.
+            # What it counted stays (events carry their keys): reading it again adds nothing twice.
+            try:
+                self.store.del_file(path)
+            except Exception:
+                pass
 
     def scan(self) -> ScanResult:
         result = ScanResult()
@@ -162,15 +171,18 @@ class Scanner:
                                 problems.append(f"{item[0].path if item[0] else ''}: index write failed: {e2}")
             pending, pending_events = [], 0
 
+        take_walk_errors()
         try:
             paths = list(dict.fromkeys(fam.files(self.ctx, d)))
         except Exception as e:
             problems.append(f"{type(e).__name__}: {e}")
             paths = []
+        # A folder under the tool's root that cannot be read is named; the files that can be read are counted all the same.
+        problems += [f"{folder}: cannot be read" for folder in take_walk_errors()]
         for path in paths:
             st = _file_info(path)
-            if st is None or not os.path.isfile(longpath(path)):
-                continue
+            if st is None or not _stat.S_ISREG(st.st_mode):
+                continue                # gone, or no regular file (a pipe, a socket, a device): never opened
             size, mtime = st.st_size, st.st_mtime
             stamp = None
             if fam.stamp:
@@ -202,6 +214,7 @@ class Scanner:
             else:
                 offset = 0
             sink = Sink()
+            take_overlong()
             try:
                 end = fam.read(self.ctx, d, path, offset, size, abs(now - mtime) > SETTLE_SECONDS, sink)
             except BadFile as e:       # quiet and still unreadable: named on every pass, never recorded (the Mac app's way)
@@ -216,6 +229,11 @@ class Scanner:
                     traceback.print_exc()
                 continue
             problems += sink.issues
+            long_lines = take_overlong()
+            if long_lines and not sink.bad:
+                # A line over the limit was left out (what is around it counts): named on every pass, like a file too
+                # large to unpack, until the file changes. The file is recorded as read, the offset is past the line.
+                sink.bad = f"{path}: a line over {_util.MAX_LINE_BYTES} bytes was skipped; the other lines are counted"
             metas = []
             if sink.bad:               # what was read counts; the file is named on every pass and not unpacked again
                 self._bad[path] = (inode, size, stamp or mtime, sink.bad)

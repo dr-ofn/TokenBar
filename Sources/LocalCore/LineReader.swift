@@ -6,19 +6,40 @@ import Foundation
 /// the next pass. `endOffset` always points just past the last consumed newline.
 /// An unterminated final line is consumed only when `consumeTrailingLine` is set
 /// (the caller knows the file is settled) and it is complete JSON.
+///
+/// A line longer than `maxLineBytes` (counted with its newline, as the Windows reader counts it) is never loaded: its
+/// end is found by reading ahead in small steps, and it is skipped, the offset moving past it. An unterminated tail
+/// that is already that long is left where it is (it may still be written); it is named, not read.
 public enum LineReader {
+    /// Same figure as the Windows reader's `util.MAX_LINE_BYTES`.
+    public static let maxLineBytes = 256 << 20
+
     public struct Result {
         public var endOffset: UInt64
         public var bytesRead: UInt64
+        /// Lines over the limit that were skipped (an unterminated tail that is already too long counts as one).
+        public var skippedLines = 0
     }
 
     @discardableResult
     public static func forEachLine(path: String, from offset: UInt64, upTo limit: UInt64 = .max, chunkSize: Int = 256 << 10,
-                                   consumeTrailingLine: Bool = false,
+                                   maxLine: Int = maxLineBytes, consumeTrailingLine: Bool = false,
                                    _ body: (UnsafeRawBufferPointer) throws -> Bool) throws -> Result {
-        let fd = open(path, O_RDONLY)
+        // Opened without waiting: a pipe (or a device) under a log's name would otherwise block here until something
+        // writes to it. A pipe, socket or device reads as nothing, the offset where it was; anything else (a folder
+        // included, which then fails to read and is named) goes on as before.
+        let special: (mode_t) -> Bool = { (mode: mode_t) -> Bool in [S_IFIFO, S_IFSOCK, S_IFCHR, S_IFBLK].contains(mode & S_IFMT) }
+        var before = Darwin.stat()
+        // Looked at first: a socket cannot even be opened (EOPNOTSUPP), and would be named as a missing file.
+        if stat(path, &before) == 0, special(before.st_mode) { return Result(endOffset: offset, bytesRead: 0) }
+        let fd = open(path, O_RDONLY | O_NONBLOCK)
         guard fd >= 0 else { throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path]) }
         defer { close(fd) }
+        var info = Darwin.stat()
+        if fstat(fd, &info) == 0, special(info.st_mode) {
+            return Result(endOffset: offset, bytesRead: 0)
+        }
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK)
 
         var buffer = [UInt8](repeating: 0, count: chunkSize)
         var filled = 0
@@ -26,10 +47,35 @@ public enum LineReader {
         var consumedEnd = offset
         var totalRead: UInt64 = 0
         var stop = false
+        var skipped = 0
+        // From this size on, a line that still has no end is measured before it is held (see `measure`).
+        let measureAt = min(64 << 20, max(chunkSize, maxLine / 4))
+        var measuredLine: UInt64?
 
         while !stop {
             if filled == buffer.count {
-                buffer.append(contentsOf: [UInt8](repeating: 0, count: buffer.count))
+                // One partial line fills the buffer. Once it is big, look for its end without keeping it: over the limit
+                // it is skipped (or left, when it has no end yet), under it the buffer grows to hold it.
+                if buffer.count >= measureAt, measuredLine != fileOffset || buffer.count >= maxLine {
+                    measuredLine = fileOffset
+                    let (length, terminated) = try measure(fd: fd, path: path, from: fileOffset, upTo: limit)
+                    if length > UInt64(maxLine) {
+                        skipped += 1
+                        if !terminated { filled = 0; break }
+                        fileOffset += length
+                        consumedEnd = fileOffset
+                        filled = 0
+                        continue
+                    }
+                    if buffer.count >= maxLine { break }
+                }
+                let grown = min(buffer.count * 2, max(maxLine, chunkSize))
+                let old = buffer
+                let kept = filled
+                buffer = [UInt8](unsafeUninitializedCapacity: grown) { target, count in
+                    old.withUnsafeBytes { _ = memcpy(target.baseAddress!, $0.baseAddress!, kept) }
+                    count = grown
+                }
             }
             let n = readChunk(fd: fd, at: fileOffset + UInt64(filled), into: &buffer, from: filled, upTo: limit)
             if n < 0 { throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path]) }
@@ -84,7 +130,30 @@ public enum LineReader {
                 consumedEnd = fileOffset + UInt64(filled)
             }
         }
-        return Result(endOffset: consumedEnd, bytesRead: totalRead)
+        return Result(endOffset: consumedEnd, bytesRead: totalRead, skippedLines: skipped)
+    }
+
+    /// How long the line that starts at `start` is, newline included, found by reading ahead in 1 MiB steps and keeping
+    /// nothing. `terminated` is false when the file (or `limit`) ends first: the length is then what is there so far.
+    private static func measure(fd: Int32, path: String, from start: UInt64, upTo limit: UInt64) throws -> (length: UInt64, terminated: Bool) {
+        var step = [UInt8](repeating: 0, count: 1 << 20)
+        var position = start
+        while position < limit {
+            let want = min(step.count, Int(clamping: limit - position))
+            var n: Int
+            repeat {
+                n = step.withUnsafeMutableBytes { pread(fd, $0.baseAddress!, want, off_t(position)) }
+            } while n < 0 && errno == EINTR
+            if n < 0 { throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: path]) }
+            if n == 0 { break }
+            let hit = step.withUnsafeBytes { memchr($0.baseAddress!, 0x0A, n) }
+            if let hit {
+                let index = step.withUnsafeBytes { $0.baseAddress!.distance(to: UnsafeRawPointer(hit)) }
+                return (position - start + UInt64(index) + 1, true)
+            }
+            position += UInt64(n)
+        }
+        return (position - start, false)
     }
 
     /// True when the first `count` bytes are one complete JSON value (a half line is not, an object cut anywhere never is).

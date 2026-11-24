@@ -1,5 +1,17 @@
 # Changelog
 
+## 9.0.5 — 2026-11-24
+Patch release: fixes for defects a review of the published 9.0.4 found and reproduced.
+
+- **Folders that cannot be read.** A folder under a tool's log folder that cannot be read (a permission problem), or a tool's folder whose way is blocked by a parent without permission, is named in the scan warnings instead of silently lowering your totals; the files that can be read still count. The same on the Mac and Windows.
+- **Very long lines.** A log line longer than 256 MiB is skipped and the file is named, instead of the Mac app using gigabytes of memory on every scan; the other lines are counted. Windows already skipped such lines and now names the file too, and moves past such a line at the end of a file as the Mac does.
+- **Files that are not files.** A pipe, socket or device that carries a log's name (Qwen Code's usage record included) no longer freezes the Mac app's scan.
+- **Prices.** A price catalogue that says `true` or `false` where a number belongs no longer produces a million-dollar price on the Mac (Windows already refused it). Model names from the catalogues no longer carry terminal escape or text-direction control characters, on the Mac and Windows. On Windows a price download cut shorter than its announced length is reported as an incomplete download.
+- **Mac: speed and numbers.** A report with thousands of models that have no price builds in about a second instead of minutes. Counts just under a million read "1.0M" ("1,0 milyon") instead of "1,000.0K".
+- **Mac: settings and warnings.** One unreadable saved setting no longer resets the others, so **Offline** stays on. The warning in the panel shows the first three problems and counts the rest; `tokenbar-cli` prints the full list.
+- **Command line.** `--home DIR` without `--db` (the Mac's `tokenbar-cli` and the Windows console mode) no longer adds that home's calls to your own index: it keeps an index of its own in TokenBar's folder (`homes/<hash>/usage.sqlite`), never inside `DIR`, and reads `DIR` by its real path, so two spellings of one home share that index.
+- **Windows.** A too-large archive that disappears for one scan and comes back unchanged is read again and its warning returns, without counting anything twice. The Windows README describes the price retries as they work: an hour after a failure, then two, four and at most six hours.
+
 ## 9.0.4 — 2026-11-24
 Patch release: fixes for defects a review of the published 9.0.3 found and reproduced.
 

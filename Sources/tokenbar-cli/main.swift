@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LocalCore
 
@@ -7,12 +8,15 @@ import LocalCore
 //                [--offline] [--prices-now]
 //   tokenbar-cli --index     show index info (file count, event count, last scan)
 //
+//   --home DIR     read that home's logs; without --db the index is the app's folder/homes/<hash of DIR>/usage.sqlite
 //   --offline      never touch the network (what TOKENBAR_OFFLINE=1 says, too)
 //   --prices-now   fetch the price catalogues now, whatever the one-day wait says (alias: --refresh-prices, as on Windows)
 
 var windowArg = "24h"
 var dbPath = UsageStore.defaultPath
+var dbGiven = false
 var home = NSHomeDirectory()
+var homeGiven = false
 var rebuild = false
 var scan = true
 var jsonOut = false
@@ -24,8 +28,8 @@ var args = CommandLine.arguments.dropFirst().makeIterator()
 while let a = args.next() {
     switch a {
     case "--window", "-w": windowArg = args.next() ?? windowArg
-    case "--db": dbPath = args.next() ?? dbPath
-    case "--home": home = args.next() ?? home
+    case "--db": dbPath = args.next() ?? dbPath; dbGiven = true
+    case "--home": home = args.next() ?? home; homeGiven = true
     case "--rebuild": rebuild = true
     case "--no-scan": scan = false
     case "--json": jsonOut = true
@@ -39,6 +43,31 @@ while let a = args.next() {
         FileHandle.standardError.write(Data((L10n.t("bilinmeyen argüman: \(a)", "unknown argument: \(a)") + "\n").utf8))
         exit(1)
     }
+}
+
+// Another home (--home) without --db gets an index of its own beside the user's: its calls must not go into the user's
+// own index, and the index is not written into the home that is read (it may be a read-only backup). The folder is the
+// first 16 hex of the SHA-256 of the home's real path, as on Windows. Without --home the path is the app's, as ever.
+// The home is read by its real path, so two spellings of one home (a link, /tmp and /private/tmp) are one set of files.
+/// The real path, as Python's os.path.realpath gives it: a home that is not there (yet) resolves through the nearest
+/// folder above it that is, so the index it gets does not change once it appears.
+func realHome(_ path: String) -> String {
+    var head = URL(fileURLWithPath: path).standardizedFileURL.path
+    var tail: [String] = []
+    while true {
+        if let p = realpath(head, nil) {
+            defer { free(p) }
+            return ([String(cString: p)] + tail.reversed()).joined(separator: "/").replacingOccurrences(of: "//", with: "/")
+        }
+        if head == "/" || head.isEmpty { return path }
+        tail.append((head as NSString).lastPathComponent)
+        head = (head as NSString).deletingLastPathComponent
+    }
+}
+if homeGiven {
+    home = realHome(home)
+    let digest = SHA256.hash(data: Data(home.utf8)).map { (b: UInt8) -> String in String(format: "%02x", b) }.joined().prefix(16)
+    if !dbGiven { dbPath = (UsageStore.defaultPath as NSString).deletingLastPathComponent + "/homes/\(digest)/usage.sqlite" }
 }
 
 guard let window = Period(rawValue: windowArg) else {

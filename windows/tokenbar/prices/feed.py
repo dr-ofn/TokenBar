@@ -65,6 +65,11 @@ def url_fetcher(source: str, etag: str | None):
                 if size > MAX_RESPONSE_BYTES:
                     raise FetchError("response too large")
                 parts.append(chunk)
+            # read1 gives b"" both at the end and when the server hung up early: a body shorter than the length the
+            # answer announced is a cut download (a chunked answer announces none and is checked by http.client itself).
+            announced = resp.headers.get("Content-Length")
+            if announced is not None and announced.strip().isascii() and announced.strip().isdigit() and size < int(announced.strip()):
+                raise FetchError("incomplete download")
             return "ok", b"".join(parts), resp.headers.get("ETag")
     except urllib.error.HTTPError as e:
         if e.code == 304:

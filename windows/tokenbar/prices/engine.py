@@ -456,6 +456,23 @@ SOURCES = ("openrouter", "litellm", "modelsdev")
 
 # ---------------------------------------------------------------------------------------------- resolution
 
+def _unsafe_for_display(ch: str) -> bool:
+    v = ord(ch)
+    return v < 0x20 or 0x7F <= v <= 0x9F or 0x202A <= v <= 0x202E or 0x2066 <= v <= 0x2069
+
+
+def display_safe(text: str) -> str:
+    """A catalogue's text without terminal controls (C0, DEL, C1) or the bidi embedding and isolate marks, the Mac's
+    `ModelNames.displaySafe`: a name from the network is shown and printed, never obeyed."""
+    if not any(_unsafe_for_display(c) for c in text):
+        return text
+    return "".join(c for c in text if not _unsafe_for_display(c))
+
+
+def _row_name(row) -> str:
+    return display_safe(row[6]) if len(row) > 6 and isinstance(row[6], str) and row[6] else ""
+
+
 def entry_from_row(kind, catalog, row_id, row, key):
     """An entry as the Mac `PriceEntry` holds it. A missing cache price takes the input price."""
     def rates(r):
@@ -465,8 +482,8 @@ def entry_from_row(kind, catalog, row_id, row, key):
 
     tiers = [dict(minPrompt=t[0], **rates(t[1:6])) for t in (row[5] if len(row) > 5 else [])]
     part = row_id.split("/", 1)[1] if kind == "modelsdev" and "/" in row_id else row_id
-    name = row[6] if len(row) > 6 and row[6] else display(part)
-    return dict(key=key, name=name, kind=kind, catalog=catalog, catalogID=row_id, source=f"{catalog}: {row_id}",
+    name = _row_name(row) or display_safe(display(part))
+    return dict(key=key, name=name, kind=kind, catalog=catalog, catalogID=row_id, source=f"{catalog}: {display_safe(row_id)}",
                 tiers=tiers, **rates(row[:5]))
 
 
@@ -491,13 +508,13 @@ class Pricer:
     def _named(self, entry, row, keys):
         """A row the catalogue left without a name takes the name another catalogue gives the same model, else the
         readable form of its id. Only the picture's label changes, never a price."""
-        if len(row) > 6 and row[6]:
+        if _row_name(row):
             return entry
         for cat in self.catalogues:
             for k in keys:
                 other = cat.by_key.get(k)
-                if other and len(other[1]) > 6 and other[1][6]:
-                    return dict(entry, name=other[1][6])
+                if other and _row_name(other[1]):
+                    return dict(entry, name=_row_name(other[1]))
         return entry
 
     def catalogue_hit(self, keys, raw, only=None):

@@ -205,6 +205,11 @@ class Store:
         with self._lock:
             self.db.execute("DELETE FROM meta WHERE k = ?", (safe_text(key),))
 
+    def del_file(self, path: str) -> None:
+        """Forgets a file's record (its events stay: they carry their own keys, so reading the file again adds nothing twice)."""
+        with self._lock:
+            self.db.execute("DELETE FROM files WHERE path = ?", (safe_text(path),))
+
     def set_meta(self, key: str, value: str) -> None:
         key, value = safe_text(key), safe_text(value)
         with self._lock:

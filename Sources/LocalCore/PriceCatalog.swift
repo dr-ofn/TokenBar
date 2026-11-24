@@ -251,12 +251,25 @@ enum PriceParsers {
         return v.isFinite ? v : 0
     }
 
+    /// `number` for a catalogue that came over the network: a JSON `true`/`false` is no number there (0, as on Windows), not
+    /// 1/0. The alias file keeps its own reading (a boolean is 1/0 in `model-aliases.json`, accepted since 9.0.3).
+    static func catalogNumber(_ any: Any?) -> Double {
+        if let n = any as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() { return 0 }
+        return number(any)
+    }
+
+    /// A JSON number that is not a boolean (an `NSNumber` is both).
+    static func isCatalogNumber(_ any: Any?) -> Bool {
+        guard let n = any as? NSNumber else { return false }
+        return CFGetTypeID(n) != CFBooleanGetTypeID()
+    }
+
     /// A JSON field that says something: a missing key and a null are both "not given" (a tier then keeps the base row's price).
     static func given(_ any: Any?) -> Bool { any != nil && !(any is NSNull) }
 
     /// USD per token (or per 1M) -> USD per 1M tokens, six decimals.
     static func perMillion(_ any: Any?) -> Double {
-        let v = number(any) * 1_000_000
+        let v = catalogNumber(any) * 1_000_000
         return (v * 1_000_000).rounded(.toNearestOrEven) / 1_000_000
     }
 
@@ -289,11 +302,11 @@ enum PriceParsers {
                                  cacheRead: max(perMillion(p["input_cache_read"]), 0), cacheWrite: max(perMillion(p["input_cache_write"]), 0),
                                  cacheWrite1h: max(perMillion(p["input_cache_write_1h"]), 0))
             let overrides = (p["overrides"] as? [[String: Any]] ?? []).filter { $0["min_prompt_tokens"] != nil }
-                .sorted { number($0["min_prompt_tokens"]) < number($1["min_prompt_tokens"]) }
+                .sorted { catalogNumber($0["min_prompt_tokens"]) < catalogNumber($1["min_prompt_tokens"]) }
             var corrupt = false
             for t in overrides {
                 // A threshold that is zero, negative or no Int64 spoils the row, as a negative rate does.
-                guard let start = Safe.size(number(t["min_prompt_tokens"]), limit: PriceLimits.maxTierTokens), start > 0 else { corrupt = true; break }
+                guard let start = Safe.size(catalogNumber(t["min_prompt_tokens"]), limit: PriceLimits.maxTierTokens), start > 0 else { corrupt = true; break }
                 // A cache price the tier does not state is the base row's (as a LiteLLM tier carries it), not 0: 0 would
                 // make it the tier's input price.
                 let tierInput: Double = given(t["prompt"]) ? perMillion(t["prompt"]) : row.input
@@ -326,11 +339,14 @@ enum PriceParsers {
         var out: [String: CatalogRow] = [:]
         for (id, any) in root {
             guard id != "sample_spec", let v = any as? [String: Any] else { continue }
-            if let mode = v["mode"] as? String, !["chat", "completion", "responses"].contains(mode) { continue }
+            // `mode` is one of the three words, or not there (null is "not there"): a number or a boolean there drops the row, as on Windows.
+            if let raw = v["mode"], !(raw is NSNull) {
+                guard let mode = raw as? String, ["chat", "completion", "responses"].contains(mode) else { continue }
+            }
             let base = literalFields.map { perMillion(v[$0]) }
             var thresholds: [Int64: [Int: Double]] = [:]
             var corrupt = false
-            for (field, value) in v where value is NSNumber {
+            for (field, value) in v where isCatalogNumber(value) {
                 for (index, name) in literalFields.enumerated() where field.hasPrefix(name + "_above_") && field.hasSuffix("k_tokens") {
                     let middle = field.dropFirst(name.count + 7).dropLast(8)
                     if !middle.isEmpty, middle.allSatisfy({ $0.isASCII && $0.isNumber }) {
@@ -362,29 +378,29 @@ enum PriceParsers {
             guard let models = (body as? [String: Any])?["models"] as? [String: Any] else { continue }
             for (modelID, any) in models {
                 guard let m = any as? [String: Any], let c = m["cost"] as? [String: Any] else { continue }
-                var row = CatalogRow(input: number(c["input"]), output: number(c["output"]), cacheRead: number(c["cache_read"]),
-                                     cacheWrite: number(c["cache_write"]), cacheWrite1h: 0)
+                var row = CatalogRow(input: catalogNumber(c["input"]), output: catalogNumber(c["output"]), cacheRead: catalogNumber(c["cache_read"]),
+                                     cacheWrite: catalogNumber(c["cache_write"]), cacheWrite1h: 0)
                 let contextTiers = (c["tiers"] as? [[String: Any]] ?? []).filter { ($0["tier"] as? [String: Any])?["type"] as? String == "context" }
-                    .sorted { number(($0["tier"] as? [String: Any])?["size"]) < number(($1["tier"] as? [String: Any])?["size"]) }
+                    .sorted { catalogNumber(($0["tier"] as? [String: Any])?["size"]) < catalogNumber(($1["tier"] as? [String: Any])?["size"]) }
                 var corrupt = false
                 for t in contextTiers {
                     // A size that is zero, negative or no Int64 spoils the row, as a negative rate does.
-                    guard let size = Safe.size(number((t["tier"] as? [String: Any])?["size"]), limit: PriceLimits.maxTierTokens), size > 0 else {
+                    guard let size = Safe.size(catalogNumber((t["tier"] as? [String: Any])?["size"]), limit: PriceLimits.maxTierTokens), size > 0 else {
                         corrupt = true
                         break
                     }
-                    let tierInput: Double = given(t["input"]) ? number(t["input"]) : row.input
-                    let tierOutput: Double = given(t["output"]) ? number(t["output"]) : row.output
-                    let tierRead: Double = given(t["cache_read"]) ? number(t["cache_read"]) : row.cacheRead
-                    let tierWrite: Double = given(t["cache_write"]) ? number(t["cache_write"]) : row.cacheWrite
+                    let tierInput: Double = given(t["input"]) ? catalogNumber(t["input"]) : row.input
+                    let tierOutput: Double = given(t["output"]) ? catalogNumber(t["output"]) : row.output
+                    let tierRead: Double = given(t["cache_read"]) ? catalogNumber(t["cache_read"]) : row.cacheRead
+                    let tierWrite: Double = given(t["cache_write"]) ? catalogNumber(t["cache_write"]) : row.cacheWrite
                     row.tiers.append(CatalogTier(minPrompt: size + 1, input: tierInput, output: tierOutput, cacheRead: tierRead,
                                                  cacheWrite: tierWrite, cacheWrite1h: 0))
                 }
                 if row.tiers.isEmpty, let over = c["context_over_200k"] as? [String: Any] {
-                    let overInput: Double = given(over["input"]) ? number(over["input"]) : row.input
-                    let overOutput: Double = given(over["output"]) ? number(over["output"]) : row.output
-                    let overRead: Double = given(over["cache_read"]) ? number(over["cache_read"]) : row.cacheRead
-                    let overWrite: Double = given(over["cache_write"]) ? number(over["cache_write"]) : row.cacheWrite
+                    let overInput: Double = given(over["input"]) ? catalogNumber(over["input"]) : row.input
+                    let overOutput: Double = given(over["output"]) ? catalogNumber(over["output"]) : row.output
+                    let overRead: Double = given(over["cache_read"]) ? catalogNumber(over["cache_read"]) : row.cacheRead
+                    let overWrite: Double = given(over["cache_write"]) ? catalogNumber(over["cache_write"]) : row.cacheWrite
                     row.tiers.append(CatalogTier(minPrompt: 200_001, input: overInput, output: overOutput, cacheRead: overRead,
                                                  cacheWrite: overWrite, cacheWrite1h: 0))
                 }
